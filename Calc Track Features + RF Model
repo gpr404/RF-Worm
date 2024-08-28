@@ -1,0 +1,1307 @@
+### Whole Code all put together for my sanity
+
+### Master Script for Analysis####
+RNGkind(sample.kind = "Rounding")
+set.seed(123)
+sample(1:100,3) # You should see 29 79 41
+### Load Packages
+{
+  library("SciViews")
+  library("markovchain")
+  library("pracma")
+  library("expm")
+  library("diagram")
+  library("devtools")
+  #library("flowcatchR")
+  library("gganimate")
+  library("ggpubr")
+  library("rstatix")
+  library("multcomp")
+  library(magick)
+  library("viridis")    
+  library(transformr)
+  library(openxlsx)
+  library(tidyverse)
+  library(janitor)
+  library(readxl)
+  library(reshape2)
+  library(ggplot2)
+  library("gridExtra")
+  library(openxlsx)
+  library(depmixS4)
+  options(java.parameters = "-Xmx8g")
+  library("viridis")    
+  library(tidyverse)
+  library(janitor)
+  library(readxl)
+  library(reshape2)
+  library(ggplot2)
+  library(ggpointdensity)
+  library(mclust)
+  #library(rhdf5)
+  library(openxlsx)
+  library(data.table)
+  library(gdata)
+  library(ggpubr)
+  library(skimr)
+  #library(ggstatsplot)
+  library(mclust)
+  library("xlsx")
+  library(depmixS4)
+  library(qdapRegex)
+  library(dplyr)
+  library(cycleRtools)
+  library("sur")
+  library(ranger)
+  library(boot)
+  library(zoo)
+  library(scales)
+  library(spm)
+  library(caret)
+  library(colorspace)
+  library(RColorBrewer)
+  library(ggforce)
+  library(plotrix)
+}
+
+###Set Seed for reproduciblilty
+set.seed(123)
+
+### Functions for later
+# Function for Markov Chain for Single worms
+## Remember [rowname,colname]= row->col transition
+SingMarkov<-function(x){
+  require(markovchain)
+  require(dplyr)
+  y<-markovchainFit(x$State.ex, method = "mle", name = "behavior states") #make markov chain per worm
+  z<-y[["estimate"]]@transitionMatrix %>% as.data.frame() #save the TM from the output
+  z<- as.data.frame(z) #it didnt work if I didnt include this soooo
+  
+  D2R<- z['Dwell','Roam'] %>% replace(is.null(.), 0) %>% replace(is.na(.), 0) # Each of these take from the position of the TM (all are the same), I replaced any NA's or NULL's with 0   
+  D2T<- z['Dwell','Tail Chase'] %>% replace(is.null(.), 0) %>% replace(is.na(.), 0)
+  D2D<- z['Dwell','Dwell'] %>% replace(is.null(.), 0) %>% replace(is.na(.), 0)
+  R2R<- z['Roam','Roam'] %>% replace(is.null(.), 0) %>% replace(is.na(.), 0)
+  R2T<- z['Roam','Tail Chase'] %>% replace(is.null(.), 0) %>% replace(is.na(.), 0)
+  R2D<- z['Roam','Dwell'] %>% replace(is.null(.), 0) %>% replace(is.na(.), 0)
+  T2R<- z['Tail Chase','Roam'] %>% replace(is.null(.), 0) %>% replace(is.na(.), 0)
+  T2T<- z['Tail Chase','Tail Chase'] %>% replace(is.null(.), 0) %>% replace(is.na(.), 0)
+  T2D<- z['Tail Chase','Dwell'] %>% replace(is.null(.), 0) %>% replace(is.na(.), 0)
+  
+  a <- x %>% count() # get the value to repeat the number of times you need to copy the values from the TM to properly cbind later
+  b <-rep(D2R, each=as.numeric(a)) %>% as.data.frame() %>% rename("D2R"=".")
+  c <-rep(D2T, each=as.numeric(a)) %>% as.data.frame() %>% rename("D2T"=".")
+  d <-rep(D2D, each=as.numeric(a)) %>% as.data.frame() %>% rename("D2D"=".")
+  e <-rep(R2R, each=as.numeric(a)) %>% as.data.frame() %>% rename("R2R"=".")
+  f <-rep(R2T, each=as.numeric(a)) %>% as.data.frame() %>% rename("R2T"=".")
+  g <-rep(R2D, each=as.numeric(a)) %>% as.data.frame() %>% rename("R2D"=".")
+  h <-rep(T2R, each=as.numeric(a)) %>% as.data.frame() %>% rename("T2R"=".")
+  i <-rep(T2T, each=as.numeric(a)) %>% as.data.frame() %>% rename("T2T"=".")
+  j <-rep(T2D, each=as.numeric(a)) %>% as.data.frame() %>% rename("T2D"=".")
+  k<- cbind(x,a,b,c,d,e,f,g,h,i,j)
+  return(k) ## returns the full df in list form
+}
+
+## Function to smooth the data, tau represents autocorrelation value to smooth properly
+Smooth.blip<-function(x){ 
+  require(zoo)
+  require(dplyr)
+  y<- rollapply(x$rpred, smooth.n, function(x) names(which.max(table(x))),align ='center', fill= TRUE) #smooth the data by "looking" at a rolling window of "4 points smooth.n's numeral value, which is from the autocorrelation value and find the state that occurs the most and make that the new state
+  rpred.smooth<-y
+  z<- cbind(x,rpred.smooth)
+  return(z)
+}
+
+{
+####Groups for analysis
+merged.wrmt.final= NULL
+numbers <-function(x)(as.numeric(x)) ##Use to convert characters to numbers for xy coords
+n= 10
+Nth.delete<-function(dataframe, n)dataframe[-(seq(n,to=nrow(dataframe),by=n)),] ## Use to randomly remove rows for RF training, change n to change the amount randomly removed
+
+####Import the data for both controls and predicted data points 
+# Choose folder with files, change pattern to relfect file type
+### Choose Folder for Mac, comment out if on windows
+# choose.dir <- function() {
+#   system("osascript -e 'tell app \"R\" to POSIX path of (choose folder with prompt \"Choose Folder:\")' > /tmp/R_folder",
+#          intern = FALSE, ignore.stderr = TRUE)
+#   p <- system("cat /tmp/R_folder && rm -f /tmp/R_folder", intern = TRUE)
+#   return(ifelse(length(p), p, NA))
+# }
+
+filename <- choose.dir()
+
+if(is.na(filename)) stop("No folder", call. = F) # takes care of any blank folders
+
+#Import Data
+## Lists the file names of all excel sheets, can be changed with changing "pattern" value 
+files.wrmt<- list.files(filename , pattern = ".xlsx", full.names = TRUE) %>%
+  set_names()
+
+#Ground Truth Group
+## imports the excel sheets with proper format and makes data frame
+merged.wrmt.GT= map_dfr(files.wrmt, read_excel,col_types = "text", .id = "file.ID") %>% na.omit() %>%
+  mutate_at(c("x","y", "timebin","animalNumber"),numbers)
+
+#Prediction Group
+merged.wrmt.Pred= map_dfr(files.wrmt,read_excel,col_types = "text", .id = "file.ID") %>%
+  mutate_at(c("x","y", "timebin","animalNumber"),numbers)
+
+merged.wrmt.Pred.Final= merged.wrmt.Pred %>% mutate_if(is.character, ~replace(., is.na(.), 0)) %>% 
+  filter(`Eye L.State`==0) ##Convert NA to zero so you can filter out RF training data
+
+### Extract all the info and categorize the data, change the ex_between function when choosing dif folders
+### To extract properly be sure to name files like this "(Sex of animal)(plate number)(mutants,leave blank if WT)(food size used)_(Date of recording YYYY-MM-DD)
+### Example of Wildtype Male recorded on a small patch of food, on the second plate of batch of recorded plates on Dec 1 1999
+### Male2SF_1999-12-1.(filetype)
+
+# Ground Truth
+
+ ## 
+{
+  coolio.3.GT= as.data.frame(merged.wrmt.GT) # keep old DF for troubleshooting
+  Worm.test.GT = coolio.3.GT %>%
+    mutate(file= qdapRegex::ex_between(file.ID,"ALL/", "x")) %>% # change to reflect the path before the file name to the file type
+    mutate(worm_ID = paste0(animalNumber,".",file)) %>% # paste all the important things from the file name
+    mutate(file= qdapRegex::ex_between(file.ID,"ALL/", "_")) %>% # keep name of file for ref
+    mutate(plateNumber = case_when(grepl(10, file) ~ 10, # all next parts take text from files make each worm and extracting all the important info
+                                   grepl(12, file) ~ 12,
+                                   grepl(13, file) ~ 13,
+                                   grepl(14, file) ~ 14,
+                                   grepl(15, file) ~ 15,
+                                   grepl(16, file) ~ 16,
+                                   grepl(17, file) ~ 17,
+                                   grepl(18, file) ~ 18,
+                                   grepl(19, file) ~ 19,
+                                   grepl(20, file) ~ 20,
+                                   grepl(21, file) ~ 21,
+                                   grepl(22, file) ~ 22,
+                                   grepl(23, file) ~ 23,
+                                   grepl(24, file) ~ 24,
+                                   grepl(25, file) ~ 25,
+                                   grepl(26, file) ~ 26,
+                                   grepl(1, file) ~ 1,
+                                   grepl(2, file) ~ 2,
+                                   grepl(3, file) ~ 3,
+                                   grepl(4, file) ~ 4,
+                                   grepl(5, file) ~ 5,
+                                   grepl(6, file) ~ 6,
+                                   grepl(7, file) ~ 7,
+                                   grepl(8, file) ~ 8,
+                                   grepl(9, file) ~ 9)) %>%
+    mutate(Sex = case_when(grepl('Male', file) ~ 'Male',
+                           grepl('Herm', file) ~ 'Herm')) %>%
+    mutate(food = case_when(grepl('BF', file) ~ 'Big Food',
+                            grepl('SF', file) ~ 'Small Food')) %>%
+    mutate(geno = case_when(grepl("Mod",file) ~ 'Mod-1',
+                            grepl("Teen",file) ~ 'L4',
+                            grepl("Lep",file) ~ 'Lep2',
+                            grepl("ASI",file) ~ 'ASI',
+                            grepl("OsmTra",file) ~ 'Osm-5::Tra-2',
+                            grepl("FFPP",file) ~ 'PPdfr',
+                            grepl("Tph", file) ~ 'Tph',
+                            grepl("TPH", file) ~ 'Tph',
+                            grepl("Pdfr", file) ~ 'Pdfr',
+                            grepl("PDFR", file) ~ 'Pdfr',
+                            grepl('Cat2',file) ~ 'Cat2',
+                            grepl('Cat',file) ~ 'Cat2',
+                            grepl('NTs',file) ~ 'Him5',
+                            grepl('P',file) ~ 'Him5',
+                            TRUE~ 'Him5')) %>%
+    mutate(pheromone = case_when(grepl('Ascr', file) ~ 'Ascr#3',
+                                 grepl('Ctrl', file) ~ 'Control',
+                                 TRUE~ 'None')) %>% 
+    mutate(spread = case_when(grepl('Dot', file) ~ 'Dot',
+                              grepl('Even', file) ~ 'Even'
+    )) %>% 
+    mutate(Sex_Reverse = case_when(grepl('Fem', file) ~ 'Feminine',
+                                   grepl('Masc', file) ~ 'Masculine',
+                                   TRUE ~ 'WT'
+    )) %>%
+    mutate(WPP = case_when(grepl('Single', file) ~ 'Single',
+                           TRUE ~ 'Multi'
+    )) %>%
+    mutate(Date= qdapRegex::ex_between(worm_ID,"_", ".")) %>%
+    
+    mutate(group = case_when(Sex == 'Herm' & food == 'Small Food' & geno == 'Him5' & pheromone=='Ascr#3' & spread =='Dot' ~ 'HermAscrDot',
+                             Sex == 'Male' & food == 'Small Food' & geno == 'Him5' & pheromone=='Ascr#3' & spread =='Dot' ~ 'MaleAscrDot',
+                             Sex == 'Herm' & food == 'Small Food' & geno == 'Him5' & pheromone=='Ascr#3' & spread =='Even' ~ 'HermAscrEven',
+                             Sex == 'Male' & food == 'Small Food' & geno == 'Him5' & pheromone=='Ascr#3' & spread =='Even' ~ 'MaleAscrEven',
+                             Sex == 'Herm' & food == 'Small Food' & geno == 'Him5' & pheromone=='Control' & spread =='Dot' ~ 'HermCtrlDot',
+                             Sex == 'Male' & food == 'Small Food' & geno == 'Him5' & pheromone=='Control' & spread =='Dot' ~ 'MaleCtrlDot',
+                             Sex == 'Herm' & food == 'Small Food' & geno == 'Him5' & pheromone=='Control' & spread =='Even' ~ 'HermCtrlEven',
+                             Sex == 'Male' & food == 'Small Food' & geno == 'Him5' & pheromone=='Control' & spread =='Even' ~ 'MaleCtrlEven',
+                             Sex == 'Herm' & food == 'Small Food' & geno == 'Him5' & Sex_Reverse== 'Feminine' ~ 'HermFem',
+                             Sex == 'Herm' & food == 'Small Food' & geno == 'Him5' & Sex_Reverse== 'Masculine' ~ 'HermMasc',
+                             Sex == 'Male' & food == 'Small Food' & geno == 'Him5' & Sex_Reverse== 'Feminine' ~ 'MaleFem',
+                             Sex == 'Male' & food == 'Small Food' & geno == 'Him5' & Sex_Reverse== 'Masculine' ~ 'MaleMasc',
+                             Sex == 'Herm' & geno == 'Him5' & Sex_Reverse== 'Feminine' ~ 'HermFem',
+                             Sex == 'Herm' & geno == 'Him5' & Sex_Reverse== 'Masculine' ~ 'HermMasc',
+                             Sex == 'Male' & geno == 'Him5' & Sex_Reverse== 'Feminine' ~ 'MaleFem',
+                             Sex == 'Male' & geno == 'Him5' & Sex_Reverse== 'Masculine' ~ 'MaleMasc',
+                             Sex == 'Herm' & food == 'Big Food' & geno == 'Him5' ~ 'HermFoodNBF',
+                             Sex == 'Herm' & food == 'Small Food' & geno == 'Him5' ~ 'HermWT',
+                             #Sex == 'Herm' & geno == 'Him5' ~ 'HermWT',
+                             Sex == 'Herm' & food == 'Small Food' & geno == 'Him5' & WPP=='Multi' ~ 'HermWT',
+                             Sex == 'Herm' & food == 'Small Food' & geno == 'Him5' & WPP=='Single' ~ 'HermSingle',
+                             Sex == 'Male' & food == 'Big Food' & geno == 'Him5' ~ 'MaleFoodNBF',
+                             #Sex == 'Male' & food == 'Small Food' & geno == 'Him5' ~ 'MaleWT',
+                             Sex == 'Male' & food == 'Small Food' & geno == 'Him5' & WPP=='Multi' ~ 'MaleWT',
+                             Sex == 'Male' & food == 'Small Food' & geno == 'Him5' & WPP=='Single' ~ 'MaleSingle',
+                             Sex == 'Male' & geno == 'Him5' ~ 'MaleWT',
+                             Sex == 'Herm' & food == 'Big Food' & geno == 'Tph' ~ 'HermTph',
+                             Sex == 'Herm' & food == 'Small Food' & geno == 'Tph' ~ 'HermTph',
+                             Sex == 'Male' & food == 'Big Food' & geno == 'Tph' ~ 'MaleTph',
+                             Sex == 'Male' & food == 'Small Food' & geno == 'Tph' ~ 'MaleTph',
+                             Sex == 'Herm' & food == 'Big Food' & geno == 'Pdfr' ~ 'HermPdfr',
+                             Sex == 'Herm' & food == 'Small Food' & geno == 'Pdfr' ~ 'HermPdfr',
+                             Sex == 'Male' & food == 'Big Food' & geno == 'Pdfr' ~ 'MalePdfr',
+                             Sex == 'Male' & food == 'Small Food' & geno == 'Pdfr' ~ 'MalePdfr',
+                             Sex == 'Herm' & food == 'Big Food' & geno == 'Cat2' ~ 'HermCat2',
+                             Sex == 'Herm' & food == 'Small Food' & geno == 'Cat2' ~ 'HermCat2',
+                             Sex == 'Male' & food == 'Big Food' & geno == 'Cat2' ~ 'MaleCat2',
+                             Sex == 'Male' & food == 'Small Food' & geno == 'Cat2' ~ 'MaleCat2',
+                             Sex == 'Male' & food == 'Small Food' & geno == 'PPdfr' ~ 'MalePPdfr',
+                             Sex == 'Herm' & geno == 'Pdf-1' ~ 'HermPdf1',
+                             Sex == 'Herm' & geno == 'Pdf-2' ~ 'HermPdf2',
+                             Sex == 'Male' & geno == 'Pdf-1' ~ 'MalePdf1',
+                             Sex == 'Male' & geno == 'Pdf-2' ~ 'MalePdf2',
+                             Sex == 'Male' & geno == 'Osm-5::Tra-2' ~ 'MaleSensFem',
+                             Sex == 'Herm' & geno == 'ASI' ~ 'HermASI',
+                             Sex == 'Male' & geno == 'ASI' ~ 'MaleASI',
+                             Sex == 'Herm' & geno == 'L4' ~ 'HermL4',
+                             Sex == 'Male' & geno == 'L4' ~ 'MaleL4',
+                             Sex == 'Herm' & geno == 'Lep2' ~ 'HermLep2',
+                             Sex == 'Male' & geno == 'Lep2' ~ 'MaleLep2',
+                             Sex == 'Herm' & geno == 'Mod-1' ~ 'HermMod1',
+                             Sex == 'Male' & geno == 'Mod-1' ~ 'MaleMod-1'
+    )) %>% mutate_at(c("x","y"),numbers) 
+  
+  }
+
+# butts= Worm.test.GT %>% select(Date,Sex,plateNumber,animalNumber)
+# 
+# butts= Worm.test.GT %>% filter(`Eye L.State`=="Tail Chase") %>% select(Date,plateNumber,animalNumber) %>% 
+#   group_by(Date,plateNumber,animalNumber) %>% mutate(count=n()) %>% unique()
+
+### Prediction Groups
+
+# butts= Worm.test.Pred %>% filter(file=='/Herm1Pdf2')
+
+# Same thing as above but with the prediction groups
+
+{
+  coolio.3.pred= as.data.frame(merged.wrmt.Pred.Final)
+  Worm.test.Pred = coolio.3.pred %>%
+    mutate(file= qdapRegex::ex_between(file.ID,"ALL/", "x")) %>% 
+    mutate(worm_ID = paste0(animalNumber,".",file)) %>%
+    mutate(file= qdapRegex::ex_between(file.ID,"ALL/", "_")) %>%
+    mutate(plateNumber = case_when(grepl(10, file) ~ 10,
+                                   grepl(11, file) ~ 11,
+                                   grepl(12, file) ~ 12,
+                                   grepl(13, file) ~ 13,
+                                   grepl(14, file) ~ 14,
+                                   grepl(15, file) ~ 15,
+                                   grepl(16, file) ~ 16,
+                                   grepl(17, file) ~ 17,
+                                   grepl(18, file) ~ 18,
+                                   grepl(19, file) ~ 19,
+                                   grepl(20, file) ~ 20,
+                                   grepl(21, file) ~ 21,
+                                   grepl(22, file) ~ 22,
+                                   grepl(23, file) ~ 23,
+                                   grepl(24, file) ~ 24,
+                                   grepl(25, file) ~ 25,
+                                   grepl(26, file) ~ 26,
+                                   grepl('Herm1', file) ~ 1,
+                                   grepl('Herm2', file) ~ 2,
+                                   grepl('Male1', file) ~ 1,
+                                   grepl('Male2', file) ~ 2,
+                                   grepl(1, file) ~ 1,
+                                   grepl(2, file) ~ 2,
+                                   grepl(3, file) ~ 3,
+                                   grepl(4, file) ~ 4,
+                                   grepl(5, file) ~ 5,
+                                   grepl(6, file) ~ 6,
+                                   grepl(7, file) ~ 7,
+                                   grepl(8, file) ~ 8,
+                                   grepl(9, file) ~ 9)) %>%
+    mutate(Sex = case_when(grepl('Male', file) ~ 'Male',
+                           grepl('Herm', file) ~ 'Herm')) %>%
+    mutate(food = case_when(grepl('BF', file) ~ 'Big Food',
+                            grepl('SF', file) ~ 'Small Food')) %>%
+    mutate(geno = case_when(grepl("Teen",file) ~ 'L4',
+                            grepl("Lep",file) ~ 'Lep2',
+                            grepl("PT",file) ~ 'Pdfr-Tph',
+                            grepl("ASI",file) ~ 'ASI',
+                            grepl("OsmTra",file) ~ 'Osm-5::Tra-2',
+                            grepl("Pdf.1", file) ~ 'Pdf-1',
+                            grepl("Pdf1", file) ~ 'Pdf-1',
+                            grepl("Pdf2", file) ~ 'Pdf-2',
+                            grepl("FFPP",file) ~ 'PPdfr',
+                            grepl("Tph", file) ~ 'Tph',
+                            grepl("TPH", file) ~ 'Tph',
+                            grepl("Pdfr", file) ~ 'Pdfr',
+                            grepl("PDFR", file) ~ 'Pdfr',
+                            grepl('Cat2',file) ~ 'Cat2',
+                            grepl('Cat',file) ~ 'Cat2',
+                            grepl('NTs',file) ~ 'Him5',
+                            #grepl('P',file) ~ 'Him5',
+                            TRUE~ 'Him5')) %>%
+    mutate(pheromone = case_when(grepl('Ascr', file) ~ 'Ascr#3',
+                                 grepl('Ctrl', file) ~ 'Control',
+                                 TRUE~ 'None')) %>% 
+    mutate(spread = case_when(grepl('Dot', file) ~ 'Dot',
+                              grepl('Even', file) ~ 'Even'
+    )) %>% 
+    mutate(Sex_Reverse = case_when(grepl('Fem', file) ~ 'Feminine',
+                                   grepl('Masc', file) ~ 'Masculine',
+                                   TRUE ~ 'WT'
+    )) %>%
+    mutate(WPP = case_when(grepl('Single', file) ~ 'Single',
+                           TRUE ~ 'Multi'
+    )) %>%
+    mutate(Date= qdapRegex::ex_between(worm_ID,"_", ".")) %>%
+    
+    mutate(group = case_when(Sex == 'Herm' & food == 'Small Food' & geno == 'Him5' & pheromone=='Ascr#3' & spread =='Dot' ~ 'HermAscrDot',
+                             Sex == 'Male' & food == 'Small Food' & geno == 'Him5' & pheromone=='Ascr#3' & spread =='Dot' ~ 'MaleAscrDot',
+                             Sex == 'Herm' & food == 'Small Food' & geno == 'Him5' & pheromone=='Ascr#3' & spread =='Even' ~ 'HermAscrEven',
+                             Sex == 'Male' & food == 'Small Food' & geno == 'Him5' & pheromone=='Ascr#3' & spread =='Even' ~ 'MaleAscrEven',
+                             Sex == 'Herm' & food == 'Small Food' & geno == 'Him5' & pheromone=='Control' & spread =='Dot' ~ 'HermCtrlDot',
+                             Sex == 'Male' & food == 'Small Food' & geno == 'Him5' & pheromone=='Control' & spread =='Dot' ~ 'MaleCtrlDot',
+                             Sex == 'Herm' & food == 'Small Food' & geno == 'Him5' & pheromone=='Control' & spread =='Even' ~ 'HermCtrlEven',
+                             Sex == 'Male' & food == 'Small Food' & geno == 'Him5' & pheromone=='Control' & spread =='Even' ~ 'MaleCtrlEven',
+                             Sex == 'Herm' & food == 'Small Food' & geno == 'Him5' & Sex_Reverse== 'Feminine' ~ 'HermFem',
+                             Sex == 'Herm' & food == 'Small Food' & geno == 'Him5' & Sex_Reverse== 'Masculine' ~ 'HermMasc',
+                             Sex == 'Male' & food == 'Small Food' & geno == 'Him5' & Sex_Reverse== 'Feminine' ~ 'MaleFem',
+                             Sex == 'Male' & food == 'Small Food' & geno == 'Him5' & Sex_Reverse== 'Masculine' ~ 'MaleMasc',
+                             Sex == 'Herm' & geno == 'Him5' & Sex_Reverse== 'Feminine' ~ 'HermFem',
+                             Sex == 'Herm' & geno == 'Him5' & Sex_Reverse== 'Masculine' ~ 'HermMasc',
+                             Sex == 'Male' & geno == 'Him5' & Sex_Reverse== 'Feminine' ~ 'MaleFem',
+                             Sex == 'Male' & geno == 'Him5' & Sex_Reverse== 'Masculine' ~ 'MaleMasc',
+                             Sex == 'Herm' & food == 'Big Food' & geno == 'Him5' ~ 'HermFoodNBF',
+                             Sex == 'Herm' & food == 'Small Food' & geno == 'Him5' ~ 'HermWT',
+                             #Sex == 'Herm' & geno == 'Him5' ~ 'HermWT',
+                             Sex == 'Herm' & food == 'Small Food' & geno == 'Him5' & WPP=='Multi' ~ 'HermWT',
+                             Sex == 'Herm' & food == 'Small Food' & geno == 'Him5' & WPP=='Single' ~ 'HermSingle',
+                             Sex == 'Male' & food == 'Big Food' & geno == 'Him5' ~ 'MaleFoodNBF',
+                             #Sex == 'Male' & food == 'Small Food' & geno == 'Him5' ~ 'MaleWT',
+                             Sex == 'Male' & food == 'Small Food' & geno == 'Him5' & WPP=='Multi' ~ 'MaleWT',
+                             Sex == 'Male' & food == 'Small Food' & geno == 'Him5' & WPP=='Single' ~ 'MaleSingle',
+                             Sex == 'Male' & geno == 'Him5' ~ 'MaleWT',
+                             Sex == 'Herm' & food == 'Big Food' & geno == 'Tph' ~ 'HermTph',
+                             Sex == 'Herm' & food == 'Small Food' & geno == 'Tph' ~ 'HermTph',
+                             Sex == 'Herm'  & geno == 'Tph' ~ 'HermTph',
+                             Sex == 'Male' & food == 'Big Food' & geno == 'Tph' ~ 'MaleTph',
+                             Sex == 'Male' & food == 'Small Food' & geno == 'Tph' ~ 'MaleTph',
+                             Sex == 'Male' & geno == 'Tph' ~ 'MaleTph',
+                             Sex == 'Herm' & food == 'Big Food' & geno == 'Pdfr' ~ 'HermPdfr',
+                             Sex == 'Herm' & food == 'Small Food' & geno == 'Pdfr' ~ 'HermPdfr',
+                             Sex == 'Herm' & geno == 'Pdfr' ~ 'HermPdfr',
+                             Sex == 'Male' & food == 'Big Food' & geno == 'Pdfr' ~ 'MalePdfr',
+                             Sex == 'Male' & food == 'Small Food' & geno == 'Pdfr' ~ 'MalePdfr',
+                             Sex == 'Male' & geno == 'Pdfr' ~ 'MalePdfr',
+                             Sex == 'Herm' & food == 'Big Food' & geno == 'Cat2' ~ 'HermCat2',
+                             Sex == 'Herm' & food == 'Small Food' & geno == 'Cat2' ~ 'HermCat2',
+                             Sex == 'Male' & food == 'Big Food' & geno == 'Cat2' ~ 'MaleCat2',
+                             Sex == 'Male' & food == 'Small Food' & geno == 'Cat2' ~ 'MaleCat2',
+                             Sex == 'Male' & food == 'Small Food' & geno == 'PPdfr' ~ 'MalePPdfr',
+                             Sex == 'Herm' & geno == 'Pdf-1' ~ 'HermPdf1',
+                             Sex == 'Herm' & geno == 'Pdf-2' ~ 'HermPdf2',
+                             Sex == 'Male' & geno == 'Pdf-1' ~ 'MalePdf1',
+                             Sex == 'Male' & geno == 'Pdf-2' ~ 'MalePdf2',
+                             Sex == 'Male' & geno == 'Osm-5::Tra-2' ~ 'MaleSensFem',
+                             Sex == 'Herm' & geno == 'ASI' ~ 'HermASI',
+                             Sex == 'Male' & geno == 'ASI' ~ 'MaleASI',
+                             Sex == 'Herm' & geno == 'Pdfr-Tph' ~ 'HermPT',
+                             Sex == 'Male' & geno == 'Pdfr-Tph' ~ 'MalePT',
+                             Sex == 'Herm' & geno == 'L4' ~ 'HermL4',
+                             Sex == 'Male' & geno == 'L4' ~ 'MaleL4',
+                             Sex == 'Herm' & geno == 'Lep2' ~ 'HermLep2',
+                             Sex == 'Male' & geno == 'Lep2' ~ 'MaleLep2'
+    )) %>% mutate_at(c("x","y"),numbers) 
+  
+}
+
+butts= Worm.test.Pred %>% filter(group=='MaleL4') %>%  #checking the specifc dates for groups, not entirely needed
+  select(Date,plateNumber) %>% distinct()
+
+##### Calculate Various Features of Tracks Ground_Truth
+
+#####sample rate of video
+tim<-1  #seconds/frame
+#########
+subsamp<-1  #subsample rate frames
+
+tracks.df<-as.data.frame(Worm.test.GT) 
+
+tracks.df <- tracks.df %>%
+  mutate(y=y/1040, x=x/1040) %>% #1040pix/cm or the resolution of your video
+  mutate(y = 2.748-y) %>% dplyr::select(-`spread`,-`food`) #%>% na.omit() 
+
+#tracks.df<- tracks.df %>% select(-...1,-`Unnamed: 0`) 
+
+tracks2.GT<-tracks.df %>%
+  # group_by(Date,group,plateNumber,animalNumber) %>% 
+  # mutate(x= ((lag(x,2)+lag(x)+x+lead(x)+lead(x,4))/9),
+  #        y= ((lag(y,2)+lag(y)+y+lead(y)+lead(y,4))/9)
+  # )%>% ungroup() %>% 
+  mutate(Date= qdapRegex::ex_between(worm_ID,"_", ".")) %>% # get date in case it wasn't extracted earlier
+  group_by(Date,group,plateNumber,animalNumber) %>% 
+  mutate(linspeed=sqrt((lead(x)-x)^2+(lead(y)-y)^2)) %>% # get distance 
+  #####converts to mm/s #####
+mutate(linspeed=(linspeed/tim)*10) %>% # get dis/time i.e. speed and convert to mm/s 
+  mutate(first_d = (lead(linspeed,1)-linspeed)/tim) %>% 
+  # mutate(first_d = abs(first_d)) %>% 
+  mutate(dy= y - lag(y))%>%
+  mutate(dx= x - lag(x)) %>% 
+  mutate(q1= abs(dy/dx))%>%
+  mutate(q2= abs(dx/dy))%>%
+  mutate(angle = case_when(   ## Calculate the angles of turning 
+    dy==0 & dx>0 ~180,
+    dy == 0 & dx < 0 ~ 0,
+    dx == 0 & dy > 0 ~ 90,
+    dx == 0 & dy < 0 ~ 270,
+    dx < 0 & dy < 0 ~ (270 + (180 / pi) * atan(q2)),
+    dx > 0 & dy < 0 ~ (180 + (180 / pi) * atan(q1)),
+    dx > 0 & dy > 0 ~ (90 + (180 / pi) * atan(q2)),
+    dx < 0 & dy > 0 ~ ((180 / pi) * atan(q1))
+  )) %>% 
+  mutate(dthet= (angle - lead(angle))) %>% 
+  mutate(theta= case_when
+         (abs(dthet) >180 ~ abs(dthet)-360,
+           abs(dthet) <180 ~ dthet)) %>% 
+  mutate(ang= (abs(theta))) %>% na.omit() %>% 
+  mutate(dt_ang=((lead(ang,1)-ang))/tim,               #average angular acceleration
+         dt_ang=abs(dt_ang)) %>% na.omit() %>%         #get rid of random NAs                 
+  mutate(d=linspeed*tim,
+         rad_vel=(linspeed*sin(ang*(pi/180))), #tangential velocity - when absent straight line (vsin(o))
+         tan_vel=(linspeed*cos(ang*(pi/180))),          #radial velocity - total linear velocity of curvilinear motion v= vparallel+vperp or linspeed=tan_vel+rad_vel
+         rad_accel=lead(rad_vel)-rad_vel,
+         tan_accel=lead(tan_vel)-tan_vel) %>% na.omit() %>% 
+  ungroup() %>% group_by(Date,group,animalNumber,plateNumber) %>% 
+  mutate(checksum=(rad_vel)+abs(tan_vel),
+         mnra=mean(rad_accel),
+         mnta=mean(tan_accel),
+         mnrv=mean(rad_vel),
+         mntv=mean(tan_vel),
+         var_rad_accel=(rad_accel-mnra)^2,
+         var_tan_accel=(tan_accel-mnta)^2,
+         var_rad_vel=(rad_vel-mnrv)^2,
+         var_tan_vel=(tan_vel-mntv)^2) %>%          #instantaneous rad_accel linear velocity^2/r
+  mutate(turn= case_when(abs(dt_ang)>90 ~1,
+                         abs(dt_ang)<=90 ~0)) %>% 
+  mutate(r_calc = (lead(linspeed,1)-linspeed)) %>%
+  mutate(reversal= case_when((r_calc)<0 ~1,
+                             (dt_ang)>=0 ~0)) %>% 
+  na.omit() %>% 
+  filter(linspeed<0.4) %>%      # to get actual speed
+  ungroup()
+
+##### Calculate Various Features of Tracks Prediction
+
+
+######## Prediction Samples # See above for descriptions
+#####sample rate of video
+tim<-1  #seconds/frame
+#########
+subsamp<-1  #subsample rate frames
+
+tracks.df<-as.data.frame(Worm.test.Pred)
+
+tracks.df <- tracks.df %>%
+  mutate(y=y/1040, x=x/1040) %>% #1040pix/cm
+  mutate(y = 2.748-y) %>% dplyr::select(-`spread`,-`food`) #%>% na.omit() 
+
+#tracks.df<- tracks.df %>% select(-...1,-`Unnamed: 0`) 
+
+tracks2.Pred<-tracks.df %>%
+  # group_by(Date,group,plateNumber,animalNumber) %>% 
+  # mutate(x= ((lag(x,2)+lag(x)+x+lead(x)+lead(x,4))/9),
+  #        y= ((lag(y,2)+lag(y)+y+lead(y)+lead(y,4))/9)
+  # )%>% ungroup() %>% 
+  mutate(Date= qdapRegex::ex_between(worm_ID,"_", ".")) %>%
+  group_by(Date,group,plateNumber,animalNumber) %>% 
+  mutate(linspeed=sqrt((lead(x)-x)^2+(lead(y)-y)^2)) %>% 
+  #####converts to mm/s #####
+mutate(linspeed=(linspeed/tim)*10) %>% 
+  mutate(first_d = (lead(linspeed,1)-linspeed)/tim) %>% 
+  # mutate(first_d = abs(first_d)) %>% 
+  mutate(dy= y - lag(y))%>%
+  mutate(dx= x - lag(x)) %>% 
+  mutate(q1= abs(dy/dx))%>%
+  mutate(q2= abs(dx/dy))%>%
+  mutate(angle = case_when(
+    dy==0 & dx>0 ~180,
+    dy == 0 & dx < 0 ~ 0,
+    dx == 0 & dy > 0 ~ 90,
+    dx == 0 & dy < 0 ~ 270,
+    dx < 0 & dy < 0 ~ (270 + (180 / pi) * atan(q2)),
+    dx > 0 & dy < 0 ~ (180 + (180 / pi) * atan(q1)),
+    dx > 0 & dy > 0 ~ (90 + (180 / pi) * atan(q2)),
+    dx < 0 & dy > 0 ~ ((180 / pi) * atan(q1))
+  )) %>% 
+  mutate(dthet= (angle - lead(angle))) %>% 
+  mutate(theta= case_when
+         (abs(dthet) >180 ~ abs(dthet)-360,
+           abs(dthet) <180 ~ dthet)) %>% 
+  mutate(ang= (abs(theta))) %>% na.omit() %>% 
+  mutate(dt_ang=((lead(ang,1)-ang))/tim,               #average angular acceleration
+         dt_ang=abs(dt_ang)) %>% na.omit() %>%         #get rid of random NAs                 
+  mutate(d=linspeed*tim,
+         rad_vel=(linspeed*sin(ang*(pi/180))), #tangential velocity - when absent straight line (vsin(o))
+         tan_vel=(linspeed*cos(ang*(pi/180))),          #radial velocity - total linear velocity of curvilinear motion v= vparallel+vperp or linspeed=tan_vel+rad_vel
+         rad_accel=lead(rad_vel)-rad_vel,
+         tan_accel=lead(tan_vel)-tan_vel) %>% na.omit() %>% 
+  ungroup() %>% group_by(Date,group,animalNumber,plateNumber) %>% 
+  mutate(checksum=(rad_vel)+abs(tan_vel),
+         mnra=mean(rad_accel),
+         mnta=mean(tan_accel),
+         mnrv=mean(rad_vel),
+         mntv=mean(tan_vel),
+         var_rad_accel=(rad_accel-mnra)^2,
+         var_tan_accel=(tan_accel-mnta)^2,
+         var_rad_vel=(rad_vel-mnrv)^2,
+         var_tan_vel=(tan_vel-mntv)^2) %>%          #instantaneous rad_accel linear velocity^2/r
+  mutate(turn= case_when(abs(dt_ang)>90 ~1,
+                         abs(dt_ang)<=90 ~0)) %>% 
+  mutate(r_calc = (lead(linspeed,1)-linspeed)) %>%
+  mutate(reversal= case_when((r_calc)<0 ~1,
+                             (dt_ang)>=0 ~0)) %>% 
+  na.omit() %>% 
+  filter(linspeed<0.4) %>%      # to get actual speed
+  ungroup()
+
+tracks.unbroken=tracks2.Pred # to save unfiltered tracks 
+
+### Filter out breaks in tracks
+tracks2.Pred<- tracks2.Pred %>% mutate_at(c("timebin"),numbers) %>% 
+  group_by(Date,group,plateNumber,animalNumber) %>% mutate(Break=lead(timebin,1)-timebin) %>% 
+  filter(Break<=1)
+
+butts= tracks2.Pred %>% ungroup() %>% group_by(worm_ID) %>% mutate(count=n()) %>% filter(n<450)
+
+
+####Add in 10s avg Comment Out if not using, used for tradtional definitions of Locomotor States 
+n=10
+
+tracks.Plate.Animal.count<-tracks2.Pred %>% ungroup() %>%group_by(`Date`,group,plateNumber,animalNumber) %>% 
+  mutate(mean = (row_number()) %/% n) %>% group_by(Date,group,plateNumber,animalNumber,mean) %>% 
+  mutate(lin.vel.avg = mean(`linspeed`)) %>% mutate(ang.avg= mean(`ang`)) %>% 
+  group_by(Date,group,plateNumber,animalNumber,mean) %>% add_tally()
+
+tracks2.df=rename(tracks.Plate.Animal.count, mean10 = n)
+
+##### Random Forest Classification
+##Fix Labeling for Ground Truth
+tracks.GT.RF=tracks2.GT %>% mutate(ELS=case_when(grepl('Roaming',`Eye L.State`) ~ 'Roam',
+                                                 grepl('Roam',`Eye L.State`) ~ 'Roam',
+                                                 grepl('Dwell',`Eye L.State`) ~ 'Dwell',
+                                                 grepl('Tail Chase',`Eye L.State`) ~ 'Tail Chase',
+                                                 grepl('Fast Turn',`Eye L.State`) ~ 'Fast Turn')) %>% 
+  select(-`Eye L.State`) %>% rename_at('ELS', ~'ground_truth')
+
+##### Analyze with GT-Sex as the behavioral type
+
+#### Training
+
+###Model with Loco State being distinct for each sex 
+
+tracks.LSS= tracks.GT.RF %>% 
+  unite(GT_sex,Sex, ground_truth, sep = ".", remove = FALSE) %>% mutate_at(c("timebin"),numbers)
+
+##Remove worm for plot, this is done to check by eye ground truth to the RF classifcation
+#'7./Male6SF_22-2-8.'
+#'1./Male5SF_22-2-4.'
+#'6./Male2SF_22-10-9.'
+#'7./Male1SF_22-10-9.
+RF.m3.plot= tracks.LSS %>% filter(worm_ID=='6.Male2SF_22-10-9.') %>%
+  group_by(Date,group,plateNumber,animalNumber) %>% mutate(Break=lead(timebin,1)-timebin) %>% 
+  filter(Break<=1) %>% as.data.frame()
+
+AA= RF.m3.plot %>% select(timebin,ground_truth)
+
+#'1./Herm1SF_21-11-12.'
+#'1./Herm4SF_21-11-16.'
+RF.h3.plot= tracks.LSS %>% filter(worm_ID=='3.Herm6SF_21-12-13.') %>% 
+  group_by(Date,group,plateNumber,animalNumber) %>% mutate(Break=lead(timebin,1)-timebin) %>% 
+  filter(Break<=1) %>% as.data.frame()
+
+graph.ETH= rbind(RF.m3.plot,RF.h3.plot)
+
+graph.Pred= graph.ETH %>% select(-GT_sex,-ground_truth)
+
+butts= tracks2.Pred %>% select(-`Eye L.State`)
+
+tracks.PredFinal= rbind(graph.Pred,butts)
+
+butts= tracks.LSS %>% filter(ground_truth=='Tail Chase')
+
+tracks.LSS2= tracks.LSS %>% filter(worm_ID!='6.Male2SF_22-10-9.') %>% 
+  filter(worm_ID!='3.Herm6SF_21-12-13.')
+
+
+
+#### RF with Ground truth
+{
+  rparam<-tracks.LSS2 %>% # get all relevant groups for RF 
+    dplyr::select(worm_ID,x,y,Date,timebin,group,animalNumber,plateNumber,Sex,`ground_truth`,GT_sex,linspeed,first_d,ang,rad_vel,rad_accel,tan_vel,tan_accel,rad_accel,tan_accel,var_rad_vel,var_tan_vel,var_rad_accel,var_tan_accel) %>% 
+    na.omit()
+  
+  # If group sizes are uneven use this to even them out
+  rparam_test.RM= rparam %>% filter(`ground_truth`=='Roam',Sex=='Male') #%>% Nth.delete(10)
+  rparam_test.DM= rparam %>% filter(`ground_truth`=='Dwell',Sex=='Male')
+  rparam_test.RH=rparam %>% filter(`ground_truth`=='Roam',Sex=='Herm')
+  rparam_test.DH=rparam %>% filter(`ground_truth`=='Dwell',Sex=='Herm') #%>% Nth.delete(2)
+  rparam_test.TC=rparam %>% filter(`ground_truth`=='Tail Chase')
+  
+  rparam_test=rbind(rparam_test.DM,rparam_test.RM,rparam_test.DH,rparam_test.RH,rparam_test.TC)
+  
+  rparam_test=rparam_test %>% select(-Sex)
+  
+  
+  
+  
+  #encode temporal dependence through centered median smoothing for all features
+  system.time(rparam<-rparam_test %>% dplyr::ungroup() %>% group_by(worm_ID) %>% 
+                mutate(ang5=rollapply(ang,5,median,align='center',fill=NA),
+                       ang10=rollapply(ang,10,median,align='center',fill=NA),
+                       ang15=rollapply(ang,15,median,align='center',fill=NA),
+                       ang25=rollapply(ang,30,median,align='center',fill=NA),
+                       ang60=rollapply(ang,60,median,align='center',fill=NA),
+                       
+                       accel5=rollapply(first_d,5,median,align='center',fill=NA),
+                       accel10=rollapply(first_d,10,median,align='center',fill=NA),
+                       accel15=rollapply(first_d,15,median,align='center',fill=NA),
+                       accel30=rollapply(first_d,30,median,align='center',fill=NA),
+                       accel60=rollapply(first_d,60,median,align='center',fill=NA),
+                       
+                       ls5=rollapply(linspeed,5,median,align='center',fill=NA),
+                       ls10=rollapply(linspeed,10,median,align='center',fill=NA),
+                       ls15=rollapply(linspeed,15,median,align='center',fill=NA),
+                       ls30=rollapply(linspeed,30,median,align='center',fill=NA),
+                       ls60=rollapply(linspeed,60,median,align='center',fill=NA),
+                       
+                       tvel5=rollapply(tan_vel,5,median,align='center',fill=NA),
+                       tvel10=rollapply(tan_vel,10,median,align='center',fill=NA),
+                       tvel15=rollapply(tan_vel,15,median,align='center',fill=NA),
+                       tvel30=rollapply(tan_vel,30,median,align='center',fill=NA),
+                       tvel60=rollapply(tan_vel,60,median,align='center',fill=NA),
+                       
+                       rvel5=rollapply(rad_vel,5,median,align='center',fill=NA),
+                       rvel10=rollapply(rad_vel,10,median,align='center',fill=NA),
+                       rvel15=rollapply(rad_vel,15,median,align='center',fill=NA),
+                       rvel30=rollapply(rad_vel,30,median,align='center',fill=NA),
+                       rvel60=rollapply(rad_vel,60,median,align='center',fill=NA),
+                       
+                       taccel5=rollapply(tan_accel,5,median,align='center',fill=NA),
+                       taccel10=rollapply(tan_accel,10,median,align='center',fill=NA),
+                       taccel15=rollapply(tan_accel,15,median,align='center',fill=NA),
+                       taccel30=rollapply(tan_accel,30,median,align='center',fill=NA),
+                       taccel60=rollapply(tan_accel,60,median,align='center',fill=NA),
+                       
+                       raccel5=rollapply(rad_accel,5,median,align='center',fill=NA),
+                       raccel10=rollapply(rad_accel,10,median,align='center',fill=NA),
+                       raccel15=rollapply(rad_accel,15,median,align='center',fill=NA),
+                       raccel30=rollapply(rad_accel,30,median,align='center',fill=NA),
+                       raccel60=rollapply(rad_accel,60,median,align='center',fill=NA),
+                       
+                       vtvel5=rollapply(var_tan_vel,5,median,align='center',fill=NA),
+                       vtvel10=rollapply(var_tan_vel,10,median,align='center',fill=NA),
+                       vtvel15=rollapply(var_tan_vel,15,median,align='center',fill=NA),
+                       vtvel30=rollapply(var_tan_vel,30,median,align='center',fill=NA),
+                       vtvel60=rollapply(var_tan_vel,60,median,align='center',fill=NA),
+
+                       vrvel5=rollapply(var_rad_vel,5,median,align='center',fill=NA),
+                       vrvel10=rollapply(var_rad_vel,10,median,align='center',fill=NA),
+                       vrvel15=rollapply(var_rad_vel,15,median,align='center',fill=NA),
+                       vrvel30=rollapply(var_rad_vel,30,median,align='center',fill=NA),
+                       vrvel60=rollapply(var_rad_vel,60,median,align='center',fill=NA),
+
+                       vtaccel5=rollapply(var_tan_accel,5,median,align='center',fill=NA),
+                       vtaccel10=rollapply(var_tan_accel,10,median,align='center',fill=NA),
+                       vtaccel15=rollapply(var_tan_accel,15,median,align='center',fill=NA),
+                       vtaccel30=rollapply(var_tan_accel,30,median,align='center',fill=NA),
+                       vtaccel60=rollapply(var_tan_accel,60,median,align='center',fill=NA),
+
+                       vraccel5=rollapply(var_rad_accel,5,median,align='center',fill=NA),
+                       vraccel10=rollapply(var_rad_accel,10,median,align='center',fill=NA),
+                       vraccel15=rollapply(var_rad_accel,15,median,align='center',fill=NA),
+                       vraccel30=rollapply(var_rad_accel,30,median,align='center',fill=NA),
+                       vraccel60=rollapply(var_rad_accel,60,median,align='center',fill=NA),
+                ) %>%
+                na.omit() )
+  
+  GT.test=rparam
+  #############################################
+  
+  rparam_mod<-rparam[,c(10:76)] #these are column ranges to select the ones that would be useful for the model you might have to change these for your set up
+  
+  
+  ### Check control ratio of LS and plot######## Comment out if not using###############
+  # tabpropherm= as.matrix(table(rparam$`ground_truth`))
+  # 
+  # prop.plotH= as.data.frame(prop.table(tabpropherm)) %>% tibble::rownames_to_column() %>%
+  #   rename_at('rowname',~'state') %>% tibble::rownames_to_column() %>% rename_at('rowname',~'sex')
+  # 
+  # prop.plotH[prop.plotH==1 |prop.plotH==2]<-'Herm'
+  # 
+  # tabpropmale= as.matrix(table(rparam$`ground_truth`))
+  # 
+  # prop.plotM.Greg= as.data.frame(prop.table(tabpropmale)) %>% tibble::rownames_to_column() %>%
+  #   rename_at('rowname',~'state') %>% tibble::rownames_to_column() %>% rename_at('rowname',~'sex')
+  # 
+  # prop.plotM[prop.plotM==1 |prop.plotM==2]<-'Male'
+  # 
+  # prop.plot=rbind(prop.plotM,prop.plotH)
+  # 
+  # ggplot(prop.plot, aes(x=sex,y=V1,fill=state))+
+  #   geom_bar(position = 'stack',stat = 'identity')+
+  #   labs(x='Group', y='Proportion of Time Spent in Locomotor State', title='Proportion of time Roaming and Dwelling') +
+  #   theme(plot.title = element_text(hjust=0.5, size=20, face='bold'))
+  
+  ####SUBSET for TRAINING
+  # Use 80% for training and predict on remaining 20%
+  set.seed(123)
+  train.idx <- sample(nrow(rparam_mod),  4/5*nrow(rparam_mod))
+  feat.train <- rparam_mod[train.idx,  ]
+  feat.test <- rparam_mod[-train.idx, ]
+  
+  #train the RF from the ground truth
+  rg.feat <- ranger(as.factor(`GT_sex`) ~ ., data = feat.train, importance = "impurity_corrected")
+  rg.feat$variable.importance
+  
+  #importance plot to check which features are most impactful for RF classifying
+  imp.a=rg.feat$variable.importance %>% as.data.frame() %>% tibble::rownames_to_column() %>% 
+    rename_at('.',~'importance') %>% rename_at('rowname',~'observation') %>% top_n(5)
+  
+  imp.plot.a=ggplot(imp.a,aes(x=reorder(observation,importance),y=importance))+
+    geom_bar(stat = 'identity')+
+    coord_flip()+
+    labs(y='importance',x='observations', title='Both Sexes Random Forest Importance') +
+    theme(plot.title = element_text(hjust=0.5, size=15, face='bold'))+
+    theme(axis.text.x = element_text(size = 12),
+          axis.text.y = element_text(size = 12),
+          axis.title.y = element_text(size = 14),
+          axis.title.x = element_text(size = 14))
+  imp.plot.a
+  
+  ####Check trained model against remaining untrained subset
+  set.seed(123)
+  rg.feat <- ranger(as.factor(`GT_sex`) ~ ., data = feat.train)
+  pred.feat <- predict(rg.feat, data = feat.test)
+  
+  # Make confusion matrix to visualize the results
+  tab<-as.matrix(table(feat.test$`GT_sex`, pred.feat$predictions))
+  prop.table(tab, 1)
+  plt<-as.data.frame(prop.table(tab, 1))
+  colnames(plt)<- c("Ground_truth","Prediction","Freq")
+  plt$Freq<-round(plt$Freq,digits=3)
+  cm.a<-ggplot(plt, aes(Ground_truth,Prediction, fill= Freq)) +
+    geom_tile() + geom_text(aes(label=Freq)) +
+    scale_fill_gradient2(low=muted("blue"),high=("orange"),midpoint = 0.5 )+
+    labs(x = "Ground Truth",y = "Prediction",title = "Both Sexes Confusion Matrix")+
+    theme(plot.title = element_text(hjust=0.5, size=15, face='bold'))+
+    theme(axis.text.x = element_text(size = 8.5),
+          axis.text.y = element_text(size = 8.5),
+          axis.title.y = element_text(size = 14),
+          axis.title.x = element_text(size = 14))
+  cm.a
+  
+  
+  #Test model against full training data set
+  rparam2<-rparam[,c(10:76)]
+  ranger(as.factor(`GT_sex`) ~ ., data = rparam2)
+  
+  set.seed(123)
+  rg.feat <- ranger(as.factor(`GT_sex`) ~ ., data = feat.train, mtry = 10)
+  
+  
+  ###########################################################################
+  ###APPEND APPROPRIATE SEX DESIGNATION (e.g. rg.feat_m/h)   #################
+  rg.feat_all<-rg.feat # store the results 
+  ###########################################################################
+  pred.feat <- predict(rg.feat, data = rparam2)
+  tab<-as.matrix(table(rparam2$`GT_sex`, pred.feat$predictions))
+  table(rparam2$`GT_sex`, pred.feat$predictions)
+  prop.table(tab, 1)
+  rpred<-pred.feat$predictions
+  tab
+  
+  # percent.table(rparam2$GT_sex, pred.feat$predictions)
+  rparam2<-cbind(rparam,rpred=rpred) 
+  
+  
+  ###########################################################################
+  ###APPEND APPROPRIATE SEX DESIGNATION (e.g. rg.feat_m/h)   #################
+  rparam_all<-rparam2 # store the RF results for later
+  ###########################################################################
+  }
+
+### Check Results
+imp.plot.a # importance plot for checking track feature importance
+cm.a # confusion matrix to check RF prediction vs GT 
+
+### New Data predictm, most comments will be the same as above 
+
+##For All Predictions
+#test=tracks.PredFinal %>% group_by(worm_ID) %>% count()
+
+{
+  rparam<- tracks.PredFinal %>% dplyr::select(worm_ID,x,y,Date,timebin,group,animalNumber,plateNumber,Sex,linspeed,first_d,ang,turn,rad_vel,rad_accel,tan_vel,tan_accel,rad_accel,tan_accel,var_rad_vel,var_tan_vel,var_rad_accel,var_tan_accel) %>% 
+    na.omit()
+
+  
+  #encode temporal dependence through centered median smoothing
+  rparam=rparam %>% group_by(worm_ID) %>% 
+    mutate(ang5=rollapply(ang,5,median,align='center',fill=NA),
+           ang10=rollapply(ang,10,median,align='center',fill=NA),
+           ang15=rollapply(ang,15,median,align='center',fill=NA),
+           ang25=rollapply(ang,30,median,align='center',fill=NA),
+           ang60=rollapply(ang,60,median,align='center',fill=NA),
+           
+           accel5=rollapply(first_d,5,median,align='center',fill=NA),
+           accel10=rollapply(first_d,10,median,align='center',fill=NA),
+           accel15=rollapply(first_d,15,median,align='center',fill=NA),
+           accel30=rollapply(first_d,30,median,align='center',fill=NA),
+           accel60=rollapply(first_d,60,median,align='center',fill=NA),
+           
+           ls5=rollapply(linspeed,5,median,align='center',fill=NA),
+           ls10=rollapply(linspeed,10,median,align='center',fill=NA),
+           ls15=rollapply(linspeed,15,median,align='center',fill=NA),
+           ls30=rollapply(linspeed,30,median,align='center',fill=NA),
+           ls60=rollapply(linspeed,60,median,align='center',fill=NA),
+           
+           tvel5=rollapply(tan_vel,5,median,align='center',fill=NA),
+           tvel10=rollapply(tan_vel,10,median,align='center',fill=NA),
+           tvel15=rollapply(tan_vel,15,median,align='center',fill=NA),
+           tvel30=rollapply(tan_vel,30,median,align='center',fill=NA),
+           tvel60=rollapply(tan_vel,60,median,align='center',fill=NA),
+           
+           rvel5=rollapply(rad_vel,5,median,align='center',fill=NA),
+           rvel10=rollapply(rad_vel,10,median,align='center',fill=NA),
+           rvel15=rollapply(rad_vel,15,median,align='center',fill=NA),
+           rvel30=rollapply(rad_vel,30,median,align='center',fill=NA),
+           rvel60=rollapply(rad_vel,60,median,align='center',fill=NA),
+           
+           
+           taccel5=rollapply(tan_accel,5,median,align='center',fill=NA),
+           taccel10=rollapply(tan_accel,10,median,align='center',fill=NA),
+           taccel15=rollapply(tan_accel,15,median,align='center',fill=NA),
+           taccel30=rollapply(tan_accel,30,median,align='center',fill=NA),
+           taccel60=rollapply(tan_accel,60,median,align='center',fill=NA),
+           
+           raccel5=rollapply(rad_accel,5,median,align='center',fill=NA),
+           raccel10=rollapply(rad_accel,10,median,align='center',fill=NA),
+           raccel15=rollapply(rad_accel,15,median,align='center',fill=NA),
+           raccel30=rollapply(rad_accel,30,median,align='center',fill=NA),
+           raccel60=rollapply(rad_accel,60,median,align='center',fill=NA),
+           
+           
+           vtvel5=rollapply(var_tan_vel,5,median,align='center',fill=NA),
+           vtvel10=rollapply(var_tan_vel,10,median,align='center',fill=NA),
+           vtvel15=rollapply(var_tan_vel,15,median,align='center',fill=NA),
+           vtvel30=rollapply(var_tan_vel,30,median,align='center',fill=NA),
+           vtvel60=rollapply(var_tan_vel,60,median,align='center',fill=NA),
+           
+           vrvel5=rollapply(var_rad_vel,5,median,align='center',fill=NA),
+           vrvel10=rollapply(var_rad_vel,10,median,align='center',fill=NA),
+           vrvel15=rollapply(var_rad_vel,15,median,align='center',fill=NA),
+           vrvel30=rollapply(var_rad_vel,30,median,align='center',fill=NA),
+           vrvel60=rollapply(var_rad_vel,60,median,align='center',fill=NA),
+           
+           vtaccel5=rollapply(var_tan_accel,5,median,align='center',fill=NA),
+           vtaccel10=rollapply(var_tan_accel,10,median,align='center',fill=NA),
+           vtaccel15=rollapply(var_tan_accel,15,median,align='center',fill=NA),
+           vtaccel30=rollapply(var_tan_accel,30,median,align='center',fill=NA),
+           vtaccel60=rollapply(var_tan_accel,60,median,align='center',fill=NA),
+           
+           vraccel5=rollapply(var_rad_accel,5,median,align='center',fill=NA),
+           vraccel10=rollapply(var_rad_accel,10,median,align='center',fill=NA),
+           vraccel15=rollapply(var_rad_accel,15,median,align='center',fill=NA),
+           vraccel30=rollapply(var_rad_accel,30,median,align='center',fill=NA),
+           vraccel60=rollapply(var_rad_accel,60,median,align='center',fill=NA),
+    ) %>%
+    na.omit()
+  
+  rparam2<-rparam[,c(10:76)]
+  set.seed(123)
+  pred.feat <- predict(rg.feat_all, data = rparam2) #Use the RF trained earlier to predict new data 
+  
+  rpred<-pred.feat$predictions
+  # percent.table(rparam2$GT_sex, pred.feat$predictions)
+  rparam2<-cbind(rparam,rpred=rpred)
+  
+  ###########################################################################
+  ###APPEND APPROPRIATE SEX DESIGNATION (e.g. rg.feat_m/h)   #################
+  rparam_allpred<-rparam2 # store predictions in a df
+  
+  ####### Add State to new plot before rbind
+  rparam_allpred= rparam_allpred %>% mutate(State = case_when(grepl('Herm.Dwell', rpred) ~ 1,
+                                                              grepl('Herm.Roam', rpred) ~ 2,
+                                                              grepl('Male.Dwell',rpred)~3,
+                                                              grepl('Male.Roam',rpred)~4,
+                                                              grepl('Male.Tail Chase',rpred)~5
+  )) %>% as.data.frame()
+  
+  ###########################################################################
+  
+  
+  
+}
+
+
+### Check the prop of each time spent in each state
+tabh<-rparam_allpred %>% filter(group=='HermWT')
+tabh<-as.matrix(table(tabh$rpred))
+prop.table(tabh)
+
+tabm<-rparam_allpred %>% filter(group=='MaleWT')
+tabm<-as.matrix(table(tabm$rpred))
+prop.table(tabm)
+
+tabmASI<-rparam_allpred %>% filter(group=='MaleLep2')
+tabmASI<-as.matrix(table(tabmASI$rpred))
+prop.table(tabmASI)
+
+#### Add in rpred for the double check
+M.EP= rparam_allpred %>% filter(worm_ID=='6./Male2SF_22-10-9.') %>% select(worm_ID,x,y,group,timebin,linspeed,ang,rpred)
+H.EP= rparam_allpred %>% filter(worm_ID=='3./Herm6SF_21-12-13.') %>% select(worm_ID,x,y,group,timebin,linspeed,ang,rpred)
+
+#M.EP=rbind(M.EP1,M.EP2)
+
+check= rparam_allpred %>% filter(group=="MalePT")
+
+
+###butts= rparam_allpred %>% filter(group=='HermPdfr')
+
+# Extract the group names you want to analyze and add EXP names with dates for data organization
+{
+  # Get all the names from each group
+  target.HMasc<-c("HermWT", "MaleWT","HermMasc")
+  target.Mfem<-c("HermWT", "MaleWT","MaleFem")
+  target.MOsmfem<-c("HermWT", "MaleWT","MaleSensFem")
+  target.HMPdfr<-c("HermWT", "MaleWT","HermPdfr","MalePdfr")
+  target.HMTph<-c("HermWT", "MaleWT","HermTph","MaleTph")
+  target.HMCat<-c("HermWT", "MaleWT","HermCat2","MaleCat2")
+  target.HMPdf1<-c("HermWT", "MaleWT","HermPdf1","MalePdf1")
+  target.HMPdf2<-c("HermWT", "MaleWT","HermPdf2","MalePdf2")
+  target.HMASI<-c("HermWT", "MaleWT","MaleASI")
+  target.HMPT<-c("HermWT", "MaleWT","HermPT","MalePT")
+  target.HML4<-c("HermWT", "MaleWT","HermL4","MaleL4")
+  target.HMLep2<-c("HermWT", "MaleWT","HermLep2","MaleLep2")
+  
+  
+  
+  #Filter the proper controls for the comparisons
+  HMascpred.final= rparam_allpred %>% filter(group %in% target.HMasc)
+  Fempred.final= rparam_allpred %>% filter(group %in% target.Mfem) 
+  Osmfempred.final= rparam_allpred %>% filter(group %in% target.MOsmfem)
+  Pdfr1.final= rparam_allpred %>% filter(group %in% target.HMPdfr)
+  Tph1.final= rparam_allpred %>% filter(group %in% target.HMTph)
+  Cat2.final= rparam_allpred %>% filter(group %in% target.HMCat)
+  Pdf1.final= rparam_allpred %>% filter(group %in% target.HMPdf1)
+  Pdf2.final= rparam_allpred %>% filter(group %in% target.HMPdf2)
+  ASI.final= rparam_allpred %>% filter(group %in% target.HMASI)
+  PT.final= rparam_allpred %>% filter(group %in% target.HMPT)
+  L4.final= rparam_allpred %>% filter(group %in% target.HML4)
+  Lep2.final= rparam_allpred %>% filter(group %in% target.HMLep2)
+  
+  #Extract the dates and save as character
+  Date.HMasc<- rparam_allpred %>% filter(group=='HermMasc')
+  Date.HMasc<-unique(Date.HMasc$Date) %>% as.character()
+  Date.Mfem<- rparam_allpred %>% filter(group=='MaleFem')
+  Date.Mfem<- unique(Date.Mfem$Date) %>% as.character()
+  Date.MOsmfem<- rparam_allpred %>% filter(group=='MaleSensFem')
+  Date.MOsmfem<- unique(Date.MOsmfem$Date) %>% as.character()
+  Date.Pdfr1<- rparam_allpred %>% filter(grepl("Pdfr", group, ignore.case = TRUE)) %>% 
+    filter(!grepl("PPdfr", group, ignore.case = TRUE))
+  Date.Pdfr1<- unique(Date.Pdfr1$Date) %>% as.character()
+  Date.Tph1<- rparam_allpred %>% filter(grepl("Tph", group, ignore.case = TRUE))
+  Date.Tph1<- unique(Date.Tph1$Date) %>% as.character()
+  Date.Cat2<- rparam_allpred %>% filter(grepl("Cat", group, ignore.case = TRUE))
+  Date.Cat2<- unique(Date.Cat2$Date) %>% as.character()
+  Date.Pdf1<- rparam_allpred %>% filter(grepl("Pdf1", group, ignore.case = TRUE))
+  Date.Pdf1<- unique(Date.Pdf1$Date) %>% as.character()
+  Date.Pdf2<- rparam_allpred %>% filter(grepl("Pdf2", group, ignore.case = TRUE))
+  Date.Pdf2<- unique(Date.Pdf2$Date) %>% as.character()
+  Date.ASI<- rparam_allpred %>% filter(grepl("ASI", group, ignore.case = TRUE))
+  Date.ASI<- unique(Date.ASI$Date) %>% as.character()
+  Date.PT<- rparam_allpred %>% filter(grepl("PT", group, ignore.case = TRUE))
+  Date.PT<- unique(Date.PT$Date) %>% as.character()
+  Date.L4<- rparam_allpred %>% filter(grepl("L4", group, ignore.case = TRUE))
+  Date.L4<- unique(Date.L4$Date) %>% as.character()
+  Date.Lep2<- rparam_allpred %>% filter(grepl("Lep2", group, ignore.case = TRUE))
+  Date.Lep2<- unique(Date.Lep2$Date) %>% as.character()
+  
+  
+  #Filter out the proper controls for mutants
+  HMascpred.final= HMascpred.final %>% filter(Date %in% Date.HMasc) %>% 
+    mutate(Exp="HermMasc") %>% unite(Exp.group,Exp,group, sep = ".", remove = FALSE) %>% as.data.frame()
+  Fempred.final= Fempred.final %>% filter(Date %in% Date.Mfem) %>% mutate(Exp="MaleFem") %>% 
+    unite(Exp.group,Exp,group, sep = ".", remove = FALSE) %>% as.data.frame()
+  Osmfempred.final= Osmfempred.final %>% filter(Date %in% Date.MOsmfem) %>% mutate(Exp="OsmFem") %>% 
+    unite(Exp.group,Exp,group, sep = ".", remove = FALSE) %>% as.data.frame()
+  Pdfr1.final= Pdfr1.final %>% filter(Date %in% Date.Pdfr1) %>% mutate(Exp="Pdfr1") %>%
+    unite(Exp.group,Exp,group, sep = ".", remove = FALSE) %>% as.data.frame()
+  Tph1.final= Tph1.final %>% filter(Date %in% Date.Tph1) %>% mutate(Exp="Tph1") %>%
+    unite(Exp.group,Exp,group, sep = ".", remove = FALSE) %>% as.data.frame()
+  Cat2.final= Cat2.final %>% filter(Date %in% Date.Cat2) %>% mutate(Exp="Cat2") %>%
+    unite(Exp.group,Exp,group, sep = ".", remove = FALSE) %>% as.data.frame()
+  Pdf1.final= Pdf1.final %>% filter(Date %in% Date.Pdf1) %>% mutate(Exp="Pdf1") %>% 
+    unite(Exp.group,Exp,group, sep = ".", remove = FALSE) %>% as.data.frame()
+  Pdf2.final= Pdf2.final %>% filter(Date %in% Date.Pdf2) %>% mutate(Exp="Pdf2") %>% 
+    unite(Exp.group,Exp,group, sep = ".", remove = FALSE) %>% as.data.frame()
+  ASI.final= ASI.final %>% filter(Date %in% Date.ASI) %>% mutate(Exp="ASI") %>% 
+    unite(Exp.group,Exp,group, sep = ".", remove = FALSE) %>% as.data.frame()
+  PT.final= PT.final %>% filter(Date %in% Date.PT) %>% mutate(Exp="PT") %>% 
+    unite(Exp.group,Exp,group, sep = ".", remove = FALSE) %>% as.data.frame()
+  L4.final= L4.final %>% filter(Date %in% Date.L4) %>% mutate(Exp="L4") %>% 
+    unite(Exp.group,Exp,group, sep = ".", remove = FALSE) %>% as.data.frame()
+  Lep2.final= Lep2.final %>% filter(Date %in% Date.Lep2) %>% mutate(Exp="Lep2") %>% 
+    unite(Exp.group,Exp,group, sep = ".", remove = FALSE) %>% as.data.frame()
+  
+  #Make one big DF
+  Allpred.exp=rbind(HMascpred.final,Fempred.final,Osmfempred.final,Pdfr1.final,Tph1.final,Cat2.final,Pdf1.final,Pdf2.final,ASI.final,PT.final,L4.final,Lep2.final)
+  
+  #Used to double check certain groups are there 
+  dbch= Allpred.exp %>% filter(group=='MaleL4')# %>% select(worm_ID,Date,timebin,plateNumber,animalNumber,rpred) %>% 
+  #filter(grepl("Roam", rpred, ignore.case = TRUE))
+  test=Allpred.exp %>% group_by(worm_ID,Exp) %>% count()
+  
+}
+
+tabh<-Allpred.exp %>% filter(group=="MaleL4")
+tabh<-as.matrix(table(tabh$rpred))
+prop.table(tabh)
+
+butts= Allpred.exp %>% filter(group=='MalePdf2') %>% 
+  select(worm_ID) %>% distinct()
+############################# DO NEW DATA IMPORT BEFORE PROGRESSING IF YOU NEED TO##########################
+
+################### SERIUSLY DOUBLE CHECK #######################
+
+########### New DF with all data is All.pred.exp.new, see "New Data Import" Code
+
+### Autocorrelation for smoothing, use this to calculate 85% percntile of the avg track length
+data <- tracks.LSS$ground_truth #load your categorical series here. e.g. scan(file.choose(), what="character")
+Tlen <- length(data)
+states <- unique(data)
+datanum <- match(data, states)
+#for numerical variables
+acf(datanum, lag.max = 900)
+################################
+
+
+#for categorical variables
+states <- unique(data)
+nostates <- length(states)
+datanum <- match(data, states)
+
+#Binarization
+bincodes <- diag(1,nostates)
+databin <- bincodes[datanum,]
+bd<-as.data.frame(bincodes)
+db<-as.data.frame(databin)
+#relative frequencies
+hatpi <- colMeans(databin)
+hp<-as.data.frame(hatpi)
+
+maxlag <- 900
+hatbivprob <- array(0,c(nostates,nostates,maxlag))
+hbp<-as.data.frame(hatbivprob)
+
+for(k in c(1:maxlag)){#for each lag
+  for(i in c(1:nostates)){#for each lagged vector representing a category
+    for(j in c(1:nostates)){#for each vector representing a category
+      hatbivprob[i,j,k] <- mean(databin[(k+1):Tlen,i]*databin[1:(Tlen-k),j])
+    }
+  }
+}
+#compare
+indprob <- hatpi %*% t(hatpi)
+
+#Cramer's v
+cramer <- rep(0,maxlag)
+for(k in c(1:maxlag)){
+  cramer[k] <- sqrt(sum((hatbivprob[,,k]-indprob)^2/indprob)/(nostates-1))
+}
+dat_cramer<-as.data.frame(cramer)
+tau<-min(which(dat_cramer <0.85))
+
+plot(cramer, type="h", xlab = "k", ylab = "Cramer's   v(k)", lwd=4, ylim=c(-1,1))
+
+### Smooth the ethogram data 
+smooth.n=as.numeric(tau)
+
+}
+
+
+##### After new data import
+
+# If you have smoothed data already you can save it or load it here from an excel sheet
+
+file= paste(choose.dir(),"RF_results_2024-04-12.xlsx",sep = "")
+openxlsx::write.xlsx(Allpred.exp.new, file=file)
+
+test=Allpred.exp.new %>% group_by(worm_ID) %>% count()
+
+Allpred.exp.new=openxlsx::read.xlsx(choose.files())
+
+### Smooth the data from the tau calculated earlier
+{
+Allpred.smooth= Allpred.exp.new %>% group_by(worm_ID,Exp) %>% 
+  group_split() %>% lapply(Smooth.blip) # smooth the data
+
+All.GT=rbindlist(Allpred.smooth) %>% ungroup() # put back into DF
+
+# get the GT tracks you pulled out earlier to double check against RF
+M.EP= All.GT %>% filter(worm_ID=='6./Male2SF_22-10-9.') %>% select(worm_ID,x,y,group,timebin,linspeed,ang,rpred,rpred.smooth)
+H.EP= All.GT %>% filter(worm_ID=='3./Herm6SF_21-12-13.') %>% select(worm_ID,x,y,group,timebin,linspeed,ang,rpred,rpred.smooth)
+
+##### Markov After short blips KILLED
+
+# Allpred represents your output from predicted worms, I just renamed it to make it easier for myself
+
+### This was from old RF model but it still works
+# Separate out the Herms since they dont Tail chase
+TM.all.H= All.GT %>% ungroup() %>% filter(Sex=='Herm') %>% as.data.frame()
+
+# Separate out the males
+TM.all.M= All.GT %>% ungroup() %>% filter(Sex=='Male') %>% as.data.frame()
+
+#Recombine
+TM.all= rbind(TM.all.H,TM.all.M)
+
+TM.all= TM.all %>% mutate(State.ex = case_when(grepl('Herm.Dwell', rpred.smooth) ~ "Dwell",
+                                               grepl('Herm.Roam', rpred.smooth) ~ "Roam",
+                                               grepl('Male.Dwell',rpred.smooth)~"Dwell",
+                                               grepl('Male.Roam',rpred.smooth)~"Roam",
+                                               grepl('Male.Tail Chase',rpred.smooth)~"Tail Chase")) %>% ungroup()
+
+# Make each worm (worm_ID for me) into a large list (group_split) and then run the function
+TM.list= TM.all %>% group_by(worm_ID) %>% group_split() %>% lapply(SingMarkov)
+
+#Put back into dataframe
+TM.final=rbindlist(TM.list)
+
+#Get the individual values per experiment 
+TM.Pdfr1= TM.final %>% filter(Exp=='Pdfr1') %>% group_by(group) %>% arrange(group) %>% select(worm_ID,group,Exp,84:92) %>% distinct()
+TM.Tph= TM.final %>% filter(Exp=='Tph1') %>% group_by(group) %>% arrange(group) %>% select(worm_ID,group,Exp,84:92) %>% distinct()
+TM.Cat2= TM.final %>% filter(Exp=='Cat2') %>% group_by(group) %>% arrange(group) %>% select(worm_ID,group,Exp,84:92) %>% distinct()
+TM.Pdf1= TM.final %>% filter(Exp=='Pdf1') %>% group_by(group) %>% arrange(group) %>% select(worm_ID,group,Exp,84:92) %>% distinct()
+TM.Pdf2= TM.final %>% filter(Exp=='Pdf2') %>% group_by(group) %>% arrange(group) %>% select(worm_ID,group,Exp,84:92) %>% distinct()
+TM.MaleFem= TM.final %>% filter(Exp=='MaleFem') %>% group_by(group) %>% arrange(group) %>% select(worm_ID,group,Exp,84:92) %>% distinct()
+TM.OsmFem= TM.final %>% filter(Exp=='OsmFem') %>% group_by(group) %>% arrange(group) %>% select(worm_ID,group,Exp,84:92) %>% distinct()
+TM.HMasc= TM.final %>% filter(Exp=='HermMasc') %>% group_by(group) %>% arrange(group) %>% select(worm_ID,group,Exp,84:92) %>% distinct()
+TM.MASI= TM.final %>% filter(Exp=='ASI') %>% group_by(group) %>% arrange(group) %>% select(worm_ID,group,Exp,84:92) %>% distinct()
+TM.MTFem= TM.final %>% filter(Exp=='TFem') %>% group_by(group) %>% arrange(group) %>% select(worm_ID,group,Exp,84:92) %>% distinct()
+TM.Mod1= TM.final %>% filter(Exp=='Mod1') %>% group_by(group) %>% arrange(group) %>% select(worm_ID,group,Exp,84:92) %>% distinct()
+TM.PPdfr= TM.final %>% filter(Exp=='PPdfr') %>% group_by(group) %>% arrange(group) %>% select(worm_ID,group,Exp,84:92) %>% distinct()
+TM.unc31= TM.final %>% filter(Exp=='unc31') %>% group_by(group) %>% arrange(group) %>% select(worm_ID,group,Exp,84:92) %>% distinct()
+
+TM.export= rbind(TM.Pdfr1,TM.Pdf1,TM.Pdf2,TM.Tph,TM.Cat2,TM.MaleFem,
+                 TM.OsmFem,TM.HMasc,TM.MASI,TM.MTFem,TM.Mod1,TM.PPdfr,
+                 TM.unc31)
+
+TM.exp= TM.export %>% distinct() %>% arrange(Exp,group)
+
+### State duration
+d.smooth= All.GT %>% filter(rpred.smooth!=TRUE) %>% 
+  mutate(L.State=case_when(
+  grepl('Dwell', rpred.smooth) ~ 'Dwell',
+  grepl('Roam', rpred.smooth) ~ 'Roam',
+  grepl('Male.Tail Chase',rpred.smooth)~'Tail Chase'))
+
+dur_summary<-d.smooth %>%
+  group_by(Date,Sex,Exp,group,plateNumber,animalNumber) %>% 
+  mutate(rlid = data.table::rleid(L.State))%>%
+  ungroup() 
+
+dur_final<-dur_summary %>% 
+  group_by(Date,Exp,group,Sex,plateNumber,animalNumber,L.State,rlid) %>% 
+  summarise(dur=n()) %>% 
+  arrange(Date,Exp,group,plateNumber,animalNumber,rlid) %>% 
+  summarise(duration=mean(dur)) %>% arrange(Exp,group,Sex,L.State)
+
+###### Export Proportion of Time in Each State
+
+#By animal
+tracks.class.animal=All.GT %>% 
+  mutate(L.State = case_when(grepl('Herm.Dwell', rpred) ~ 'Dwell',
+                              grepl('Herm.Roam', rpred) ~ 'Roam',
+                              grepl('Male.Dwell',rpred)~ 'Dwell',
+                              grepl('Male.Roam',rpred)~ 'Roam',
+                              grepl('Male.Tail Chase',rpred)~ 'Tail Chase'
+))
+
+tracks.class.animal$L.State <- factor(tracks.class.animal$L.State, levels = c("Roam",
+                                                                              "Dwell",
+                                                                              "Tail Chase"))
+
+tracks.class.animal= tracks.class.animal %>% group_by(Exp,worm_ID,group) %>% count(L.State,.drop = FALSE) %>% 
+  select(worm_ID,Exp,group,L.State,n) %>% as.data.frame() %>% unique() %>% ungroup() %>% 
+  group_by(Exp,worm_ID) %>% 
+  mutate(total=sum(n)) %>% mutate(Percent.LS= n/total) %>% 
+  arrange(Exp,group,L.State)
+
+# tracks.class.animal= tracks.class.animal %>% 
+#   group_by(worm_ID,L.State) %>% mutate(count=n()) %>% ungroup() %>% 
+#   distinct(Date,Exp,group,plateNumber,animalNumber,L.State,count) %>% 
+#   group_by(Date,Exp,group,plateNumber,animalNumber) %>% mutate(total=sum(`count`)) %>% mutate(Percent.RD=`count`/total) %>% 
+#   arrange(Exp,group,L.State) %>% select(Date,Exp,group,L.State,Percent.RD) %>% unique()
+
+tracks.ex.animal=as.data.frame(tracks.class.animal)
+
+# Speed Average
+tracks.speedavg=All.GT %>% 
+  mutate(L.State = case_when(grepl('Herm.Dwell', rpred) ~ 'Dwell',
+                             grepl('Herm.Roam', rpred) ~ 'Roam',
+                             grepl('Male.Dwell',rpred)~ 'Dwell',
+                             grepl('Male.Roam',rpred)~ 'Roam',
+                             grepl('Male.Tail Chase',rpred)~ 'Tail Chase'
+  )) %>% group_by(worm_ID,L.State) %>% mutate(avg.speed= mean(linspeed)) %>% 
+  distinct(Date,Exp,group,plateNumber,animalNumber,L.State,avg.speed) %>% 
+  arrange(Exp,group,L.State) %>% select(Date,Exp,group,L.State,avg.speed) %>% unique()
+
+tracks.ex.avgspeed=as.data.frame(tracks.speedavg)
+
+}
+
+### Export the data into excel sheets
+
+# Trans Matrix
+file= paste(choose.dir(),"\\TM_Animal_All_2023-12-14.xlsx",sep = "")
+openxlsx::write.xlsx(TM.exp, file=file)
+# Track Fraction
+file= paste(choose.dir(),"\\LS_Prop_2024-05-06.xlsx",sep = "")
+openxlsx::write.xlsx(tracks.ex.animal, file=file)
+# Avg LV and AV
+file= paste(choose.dir(),"\\LS_AvgVel_2023-05-06.xlsx",sep = "")
+openxlsx::write.xlsx(tracks.ex.avgspeed, file=file)
+# State Dur
+file= paste(choose.dir(),"\\SD_2024-05-06.xlsx",sep = "")
+openxlsx::write.xlsx(dur_final, file=file)
+
+
+### Quick Export
+Quick.exp.TM= TM.exp %>% filter(Exp=='unc31')
+Quick.exp.Prop= tracks.ex.animal %>% filter(Exp=='unc31')
+Quick.exp.LS= tracks.ex.avgspeed %>% filter(Exp=='unc31')
+Quick.exp.SD= duration_summary %>% filter(Exp=='unc31')
+
+file= paste(choose.dir(),"LS_unc31_2023-11-6.xlsx",sep = "")
+openxlsx::write.xlsx(Quick.exp.LS, file=file)
+
+file= paste(choose.dir(),"TM_unc31_2023-11-6.xlsx",sep = "")
+openxlsx::write.xlsx(Quick.exp.TM, file=file)
+
+file= paste(choose.dir(),"LSP_unc31_2023-11-6.xlsx",sep = "")
+openxlsx::write.xlsx(Quick.exp.Prop, file=file)
+
+file= paste(choose.dir(),"SD_unc31_2023-11-6.xlsx",sep = "")
+openxlsx::write.xlsx(Quick.exp.SD, file=file)
+
+check= unique(tracks.LSS2$worm_ID)
+
+check= tracks.LSS2 %>% filter(Sex=='Male')
+check2= unique(check$worm_ID)
