@@ -1,0 +1,649 @@
+### Add new Data so I dont have to reload it every time
+
+### This code is largely the same as "Calc Track Features + RF Model" but it contains extra groups 
+# This should be used in the same enviroment as the "Calc Track Features + RF Model" as it uses that trained RF model 
+# This code just made it easier for me to load in new excel sheets for file organization
+# If there are parts that are uncommented, they are likely commented in the "Calc Track Features + RF Model" file, so check that 
+
+
+
+install.packages("rlang")
+### Load Packages
+{
+  library("SciViews")
+  library("markovchain")
+  library("pracma")
+  library("expm")
+  library("diagram")
+  library("devtools")
+  #library("flowcatchR")
+  library("gganimate")
+  library("ggpubr")
+  library("rstatix")
+  library("multcomp")
+  library(magick)
+  library("viridis")    
+  library(transformr)
+  library(openxlsx)
+  library(tidyverse)
+  library(janitor)
+  library(readxl)
+  library(reshape2)
+  library(ggplot2)
+  library("gridExtra")
+  library(openxlsx)
+  library(depmixS4)
+  options(java.parameters = "-Xmx8g")
+  library("viridis")    
+  library(tidyverse)
+  library(janitor)
+  library(readxl)
+  library(reshape2)
+  library(ggplot2)
+  library(ggpointdensity)
+  library(mclust)
+  #library(rhdf5)
+  library(openxlsx)
+  library(data.table)
+  library(gdata)
+  library(ggpubr)
+  library(skimr)
+  #library(ggstatsplot)
+  library(mclust)
+  library("xlsx")
+  library(depmixS4)
+  library(qdapRegex)
+  library(dplyr)
+  library(cycleRtools)
+  library("sur")
+  library(ranger)
+  library(boot)
+  library(zoo)
+  library(scales)
+  library(spm)
+  library(caret)
+  library(colorspace)
+  library(RColorBrewer)
+  library(ggforce)
+  library(plotrix)
+}
+
+{
+
+###Set Seed for reproduciblity
+RNGkind(sample.kind = "Rounding")
+set.seed(123)
+
+
+####Import the data for both controls and predicted data points 
+# Choose folder with files, change pattern to relfect file type
+### Choose Folder for Mac
+# choose.dir <- function() {
+#   system("osascript -e 'tell app \"R\" to POSIX path of (choose folder with prompt \"Choose Folder:\")' > /tmp/R_folder",
+#          intern = FALSE, ignore.stderr = TRUE)
+#   p <- system("cat /tmp/R_folder && rm -f /tmp/R_folder", intern = TRUE)
+#   return(ifelse(length(p), p, NA))
+# }
+
+filename.new <- choose.dir()
+# 
+# if(is.na(filename)) stop("No folder", call. = F)
+
+#Import Data
+files.wrmt.new<- list.files(filename.new , pattern = ".xlsx", full.names = TRUE) %>%
+  set_names()
+
+
+#Prediction Group
+merged.wrmt.new= map_dfr(files.wrmt.new,read_excel,col_types = "text", .id = "file.ID") %>%
+  mutate_at(c("x","y", "timebin","animalNumber"),numbers)
+
+
+### Extract all the info and categorize the data, change the ex_between function when choosing dif folders
+### To extrac properly be sure to name files like this "(Sex of animal)(plate number)(mutants,leave blank if WT)(food size used)_(Date of recording YYYY-MM-DD)
+### Example of Wildtype Male recorded on a small patch of food, on the second plate of batch of recorded plates on Dec 1 1999
+### Male2SF_1999-12-1.(filetype)
+
+{
+  coolio.3.new= as.data.frame(merged.wrmt.new)
+  Worm.test.new = coolio.3.new %>%
+    mutate(file= qdapRegex::ex_between(file.ID,"Sheets/", "x")) %>% 
+    mutate(worm_ID = paste0(animalNumber,".",file)) %>%
+    mutate(file= qdapRegex::ex_between(file.ID,"Sheets/", "_")) %>%
+    mutate(plateNumber = case_when(grepl(10, file) ~ 10,
+                                   grepl(11, file) ~ 11,
+                                   grepl(12, file) ~ 12,
+                                   grepl(13, file) ~ 13,
+                                   grepl(14, file) ~ 14,
+                                   grepl(15, file) ~ 15,
+                                   grepl(16, file) ~ 16,
+                                   grepl(17, file) ~ 17,
+                                   grepl(18, file) ~ 18,
+                                   grepl(19, file) ~ 19,
+                                   grepl(20, file) ~ 20,
+                                   grepl(21, file) ~ 21,
+                                   grepl(22, file) ~ 22,
+                                   grepl(23, file) ~ 23,
+                                   grepl(24, file) ~ 24,
+                                   grepl(25, file) ~ 25,
+                                   grepl(26, file) ~ 26,
+                                   grepl('Herm1', file) ~ 1,
+                                   grepl('Herm2', file) ~ 2,
+                                   grepl('Male1', file) ~ 1,
+                                   grepl('Male2', file) ~ 2,
+                                   grepl(1, file) ~ 1,
+                                   grepl(2, file) ~ 2,
+                                   grepl(3, file) ~ 3,
+                                   grepl(4, file) ~ 4,
+                                   grepl(5, file) ~ 5,
+                                   grepl(6, file) ~ 6,
+                                   grepl(7, file) ~ 7,
+                                   grepl(8, file) ~ 8,
+                                   grepl(9, file) ~ 9)) %>%
+    mutate(Sex = case_when(grepl('Male', file) ~ 'Male',
+                           grepl('Herm', file) ~ 'Herm')) %>%
+    mutate(food = case_when(grepl('BF', file) ~ 'Big Food',
+                            grepl('SF', file) ~ 'Small Food')) %>%
+    mutate(geno = case_when(grepl("Nhr",file, ignore.case = TRUE) ~ 'nhr-113',
+                            grepl("ModFem",file, ignore.case = TRUE) ~ 'ModFem',
+                            grepl("Single",file, ignore.case = TRUE) ~ 'single',
+                            grepl("Gof",file, ignore.case = TRUE) ~ 'PdfrGof',
+                            grepl("PFem",file, ignore.case = TRUE) ~ 'PdfrFem',
+                            grepl("P12",file, ignore.case = TRUE) ~ 'pdf-12',
+                            grepl("muscm",file, ignore.case = TRUE) ~ 'MuscM',
+                            grepl("daf7",file, ignore.case = TRUE) ~ 'daf-7',
+                            grepl("Unc",file) ~ 'unc-31',
+                            grepl("Mod",file) ~ 'Mod-1',
+                            grepl("TFem",file) ~ 'Tph Fem',
+                            grepl("Teen",file) ~ 'L4',
+                            grepl("Lep",file) ~ 'Lep2',
+                            grepl("PT",file) ~ 'Pdfr-Tph',
+                            grepl("ASI",file) ~ 'ASI',
+                            grepl("OsmTra",file) ~ 'Osm-5::Tra-2',
+                            grepl("Pdf.1", file) ~ 'Pdf-1',
+                            grepl("Pdf1", file) ~ 'Pdf-1',
+                            grepl("Pdf2", file) ~ 'Pdf-2',
+                            grepl("FFPP",file) ~ 'PPdfr',
+                            grepl("Tph", file) ~ 'Tph',
+                            grepl("TPH", file) ~ 'Tph',
+                            grepl("Pdfr", file) ~ 'Pdfr',
+                            grepl("PDFR", file) ~ 'Pdfr',
+                            grepl('Cat2',file) ~ 'Cat2',
+                            grepl('Cat',file) ~ 'Cat2',
+                            grepl('NTs',file) ~ 'Him5',
+                            #grepl('P',file) ~ 'Him5',
+                            TRUE~ 'Him5')) %>%
+    mutate(pheromone = case_when(grepl('Ascr', file) ~ 'Ascr#3',
+                                 grepl('Ctrl', file) ~ 'Control',
+                                 TRUE~ 'None')) %>% 
+    mutate(spread = case_when(grepl('Dot', file) ~ 'Dot',
+                              grepl('Even', file) ~ 'Even'
+    )) %>% 
+    mutate(Sex_Reverse = case_when(grepl('Fem', file) ~ 'Feminine',
+                                   grepl('Masc', file) ~ 'Masculine',
+                                   TRUE ~ 'WT'
+    )) %>%
+    mutate(WPP = case_when(grepl('Single', file) ~ 'Single',
+                           TRUE ~ 'Multi'
+    )) %>%
+    mutate(Date= qdapRegex::ex_between(worm_ID,"_", ".")) %>%
+    
+    mutate(group = case_when(Sex == 'Herm' & food == 'Small Food' & geno == 'Him5' & pheromone=='Ascr#3' & spread =='Dot' ~ 'HermAscrDot',
+                             Sex == 'Male' & food == 'Small Food' & geno == 'Him5' & pheromone=='Ascr#3' & spread =='Dot' ~ 'MaleAscrDot',
+                             Sex == 'Herm' & food == 'Small Food' & geno == 'Him5' & pheromone=='Ascr#3' & spread =='Even' ~ 'HermAscrEven',
+                             Sex == 'Male' & food == 'Small Food' & geno == 'Him5' & pheromone=='Ascr#3' & spread =='Even' ~ 'MaleAscrEven',
+                             Sex == 'Herm' & food == 'Small Food' & geno == 'Him5' & pheromone=='Control' & spread =='Dot' ~ 'HermCtrlDot',
+                             Sex == 'Male' & food == 'Small Food' & geno == 'Him5' & pheromone=='Control' & spread =='Dot' ~ 'MaleCtrlDot',
+                             Sex == 'Herm' & food == 'Small Food' & geno == 'Him5' & pheromone=='Control' & spread =='Even' ~ 'HermCtrlEven',
+                             Sex == 'Male' & food == 'Small Food' & geno == 'Him5' & pheromone=='Control' & spread =='Even' ~ 'MaleCtrlEven',
+                             Sex == 'Herm' & food == 'Small Food' & geno == 'Him5' & Sex_Reverse== 'Feminine' ~ 'HermFem',
+                             Sex == 'Herm' & food == 'Small Food' & geno == 'Him5' & Sex_Reverse== 'Masculine' ~ 'HermMasc',
+                             Sex == 'Male' & food == 'Small Food' & geno == 'Him5' & Sex_Reverse== 'Feminine' ~ 'MaleFem',
+                             Sex == 'Male' & food == 'Small Food' & geno == 'Him5' & Sex_Reverse== 'Masculine' ~ 'MaleMasc',
+                             Sex == 'Herm' & geno == 'Him5' & Sex_Reverse== 'Feminine' ~ 'HermFem',
+                             Sex == 'Herm' & geno == 'Him5' & Sex_Reverse== 'Masculine' ~ 'HermMasc',
+                             Sex == 'Male' & geno == 'Him5' & Sex_Reverse== 'Feminine' ~ 'MaleFem',
+                             Sex == 'Male' & geno == 'Him5' & Sex_Reverse== 'Masculine' ~ 'MaleMasc',
+                             Sex == 'Herm' & food == 'Big Food' & geno == 'Him5' ~ 'HermFoodNBF',
+                             Sex == 'Herm' & food == 'Small Food' & geno == 'Him5' ~ 'HermWT',
+                             #Sex == 'Herm' & geno == 'Him5' ~ 'HermWT',
+                             Sex == 'Herm' & food == 'Small Food' & geno == 'Him5' & WPP=='Multi' ~ 'HermWT',
+                             Sex == 'Herm' & food == 'Small Food' & geno == 'Him5' & WPP=='Single' ~ 'HermSingle',
+                             Sex == 'Male' & food == 'Big Food' & geno == 'Him5' ~ 'MaleFoodNBF',
+                             #Sex == 'Male' & food == 'Small Food' & geno == 'Him5' ~ 'MaleWT',
+                             Sex == 'Male' & food == 'Small Food' & geno == 'Him5' & WPP=='Multi' ~ 'MaleWT',
+                             Sex == 'Male' & food == 'Small Food' & geno == 'Him5' & WPP=='Single' ~ 'MaleSingle',
+                             Sex == 'Male' & geno == 'Him5' ~ 'MaleWT',
+                             Sex == 'Herm' & food == 'Big Food' & geno == 'Tph' ~ 'HermTph',
+                             Sex == 'Herm' & food == 'Small Food' & geno == 'Tph' ~ 'HermTph',
+                             Sex == 'Herm'  & geno == 'Tph' ~ 'HermTph',
+                             Sex == 'Male' & food == 'Big Food' & geno == 'Tph' ~ 'MaleTph',
+                             Sex == 'Male' & food == 'Small Food' & geno == 'Tph' ~ 'MaleTph',
+                             Sex == 'Male' & geno == 'Tph' ~ 'MaleTph',
+                             Sex == 'Herm' & food == 'Big Food' & geno == 'Pdfr' ~ 'HermPdfr',
+                             Sex == 'Herm' & food == 'Small Food' & geno == 'Pdfr' ~ 'HermPdfr',
+                             Sex == 'Herm' & geno == 'Pdfr' ~ 'HermPdfr',
+                             Sex == 'Male' & food == 'Big Food' & geno == 'Pdfr' ~ 'MalePdfr',
+                             Sex == 'Male' & food == 'Small Food' & geno == 'Pdfr' ~ 'MalePdfr',
+                             Sex == 'Male' & geno == 'Pdfr' ~ 'MalePdfr',
+                             Sex == 'Herm' & food == 'Big Food' & geno == 'Cat2' ~ 'HermCat2',
+                             Sex == 'Herm' & food == 'Small Food' & geno == 'Cat2' ~ 'HermCat2',
+                             Sex == 'Male' & food == 'Big Food' & geno == 'Cat2' ~ 'MaleCat2',
+                             Sex == 'Male' & food == 'Small Food' & geno == 'Cat2' ~ 'MaleCat2',
+                             Sex == 'Male' & food == 'Small Food' & geno == 'PPdfr' ~ 'MalePPdfr',
+                             Sex == 'Herm' & geno == 'Pdf-1' ~ 'HermPdf1',
+                             Sex == 'Herm' & geno == 'Pdf-2' ~ 'HermPdf2',
+                             Sex == 'Male' & geno == 'Pdf-1' ~ 'MalePdf1',
+                             Sex == 'Male' & geno == 'Pdf-2' ~ 'MalePdf2',
+                             Sex == 'Male' & geno == 'Osm-5::Tra-2' ~ 'MaleSensFem',
+                             Sex == 'Herm' & geno == 'ASI' ~ 'HermASI',
+                             Sex == 'Male' & geno == 'ASI' ~ 'MaleASI',
+                             Sex == 'Herm' & geno == 'Pdfr-Tph' ~ 'HermPT',
+                             Sex == 'Male' & geno == 'Pdfr-Tph' ~ 'MalePT',
+                             Sex == 'Herm' & geno == 'L4' ~ 'HermL4',
+                             Sex == 'Male' & geno == 'L4' ~ 'MaleL4',
+                             Sex == 'Herm' & geno == 'Lep2' ~ 'HermLep2',
+                             Sex == 'Male' & geno == 'Lep2' ~ 'MaleLep2',
+                             Sex == 'Male' & geno == 'Tph Fem' ~ 'MaleTFem',
+                             Sex == 'Herm' & geno == 'Mod-1' ~ 'HermMod1',
+                             Sex == 'Male' & geno == 'Mod-1' ~ 'MaleMod1',
+                             Sex == 'Herm' & geno == 'unc-31' ~ 'HermUnc31',
+                             Sex == 'Male' & geno == 'unc-31' ~ 'MaleUnc31',
+                             Sex == 'Herm' & geno == 'daf-7' ~ 'HermDaf7',
+                             Sex == 'Male' & geno == 'daf-7' ~ 'MaleDaf7',
+                             Sex == 'Herm' & geno == 'MuscM' ~ 'HermMusM',
+                             Sex == 'Male' & geno == 'MuscM' ~ 'MaleMusM',
+                             Sex == 'Herm' & geno == 'pdf-12' ~ 'HermPdf12',
+                             Sex == 'Male' & geno == 'pdf-12' ~ 'MalePdf12',
+                             Sex == 'Male' & geno == 'PdfrFem' ~ 'MalePdfem',
+                             Sex == 'Herm' & geno == 'PdfrGof' ~ 'MalePGof',
+                             Sex == 'Male' & geno == 'PdfrGof' ~ 'HermPGof',
+                             Sex == 'Male' & geno == 'single' ~ 'MaleSingle',
+                             Sex == 'Male' & geno == 'ModFem' ~ 'MaleModfem',
+                             Sex == 'Male' & geno == 'nhr-113' ~ 'MaleTail'
+    )) %>% mutate_at(c("x","y"),numbers) 
+  
+  }
+
+##### Calculate Various Features of Tracks Prediction
+check= Worm.test.new %>% filter(group=='MaleTail') 
+
+######## Predicition Samples
+#####sample rate of video
+tim<-1  #seconds/frame
+#########
+subsamp<-1  #subsample rate frames
+
+tracks.new<-as.data.frame(Worm.test.new)
+
+tracks.new <- tracks.new %>%
+  mutate(y=y/1040, x=x/1040) %>% #1040pix/cm
+  mutate(y = 2.748-y) %>% dplyr::select(-`spread`,-`food`) #%>% na.omit() 
+
+#tracks.df<- tracks.df %>% select(-...1,-`Unnamed: 0`) 
+
+tracks2.new<-tracks.new %>%
+  # group_by(Date,group,plateNumber,animalNumber) %>% 
+  # mutate(x= ((lag(x,2)+lag(x)+x+lead(x)+lead(x,4))/9),
+  #        y= ((lag(y,2)+lag(y)+y+lead(y)+lead(y,4))/9)
+  # )%>% ungroup() %>% 
+  mutate(Date= qdapRegex::ex_between(worm_ID,"_", ".")) %>%
+  group_by(Date,group,plateNumber,animalNumber) %>% 
+  mutate(linspeed=sqrt((lead(x)-x)^2+(lead(y)-y)^2)) %>% 
+  #####converts to mm/s #####
+mutate(linspeed=(linspeed/tim)*10) %>% 
+  mutate(first_d = (lead(linspeed,1)-linspeed)/tim) %>% 
+  # mutate(first_d = abs(first_d)) %>% 
+  mutate(dy= y - lag(y))%>%
+  mutate(dx= x - lag(x)) %>% 
+  mutate(q1= abs(dy/dx))%>%
+  mutate(q2= abs(dx/dy))%>%
+  mutate(angle = case_when(
+    dy==0 & dx>0 ~180,
+    dy == 0 & dx < 0 ~ 0,
+    dx == 0 & dy > 0 ~ 90,
+    dx == 0 & dy < 0 ~ 270,
+    dx < 0 & dy < 0 ~ (270 + (180 / pi) * atan(q2)),
+    dx > 0 & dy < 0 ~ (180 + (180 / pi) * atan(q1)),
+    dx > 0 & dy > 0 ~ (90 + (180 / pi) * atan(q2)),
+    dx < 0 & dy > 0 ~ ((180 / pi) * atan(q1))
+  )) %>% 
+  mutate(dthet= (angle - lead(angle))) %>% 
+  mutate(theta= case_when
+         (abs(dthet) >180 ~ abs(dthet)-360,
+           abs(dthet) <180 ~ dthet)) %>% 
+  mutate(ang= (abs(theta))) %>% na.omit() %>% 
+  mutate(dt_ang=((lead(ang,1)-ang))/tim,               #average angular acceleration
+         dt_ang=abs(dt_ang)) %>% na.omit() %>%         #get rid of random NAs                 
+  mutate(d=linspeed*tim,
+         rad_vel=(linspeed*sin(ang*(pi/180))), #tangential velocity - when absent straight line (vsin(o))
+         tan_vel=(linspeed*cos(ang*(pi/180))),          #radial velocity - total linear velocity of curvilinear motion v= vparallel+vperp or linspeed=tan_vel+rad_vel
+         rad_accel=lead(rad_vel)-rad_vel,
+         tan_accel=lead(tan_vel)-tan_vel) %>% na.omit() %>% 
+  ungroup() %>% group_by(Date,group,animalNumber,plateNumber) %>% 
+  mutate(checksum=(rad_vel)+abs(tan_vel),
+         mnra=mean(rad_accel),
+         mnta=mean(tan_accel),
+         mnrv=mean(rad_vel),
+         mntv=mean(tan_vel),
+         var_rad_accel=(rad_accel-mnra)^2,
+         var_tan_accel=(tan_accel-mnta)^2,
+         var_rad_vel=(rad_vel-mnrv)^2,
+         var_tan_vel=(tan_vel-mntv)^2) %>%          #instantaneous rad_accel linear velocity^2/r
+  mutate(turn= case_when(abs(dt_ang)>90 ~1,
+                         abs(dt_ang)<=90 ~0)) %>% 
+  mutate(r_calc = (lead(linspeed,1)-linspeed)) %>%
+  mutate(reversal= case_when((r_calc)<0 ~1,
+                             (dt_ang)>=0 ~0)) %>% 
+  na.omit() %>% 
+  filter(linspeed<0.4) %>%      # to get actual speed
+  ungroup()
+
+check= tracks2.new %>% filter(group=='MalePdfem')
+
+tracks.unbroken.new=tracks2.new
+
+### Filter out breaks in tracks
+tracks2.new<- tracks2.new %>% mutate_at(c("timebin"),numbers) %>% 
+  group_by(Date,group,plateNumber,animalNumber) %>% mutate(Break=lead(timebin,1)-timebin) %>% 
+  filter(Break<=1)
+
+#### Random Forest
+
+## New Data predict 
+
+##For All Predictions
+
+{
+  rparam<- tracks2.new %>% dplyr::select(worm_ID,x,y,Date,timebin,group,animalNumber,plateNumber,Sex,linspeed,first_d,ang,turn,rad_vel,rad_accel,tan_vel,tan_accel,rad_accel,tan_accel,var_rad_vel,var_tan_vel,var_rad_accel,var_tan_accel) %>% 
+    na.omit()
+  
+  
+  #encode temporal dependence through centered median smoothing
+  rparam=rparam %>% group_by(worm_ID) %>% 
+    mutate(ang5=rollapply(ang,5,median,align='center',fill=NA),
+           ang10=rollapply(ang,10,median,align='center',fill=NA),
+           ang15=rollapply(ang,15,median,align='center',fill=NA),
+           ang25=rollapply(ang,30,median,align='center',fill=NA),
+           ang60=rollapply(ang,60,median,align='center',fill=NA),
+           
+           accel5=rollapply(first_d,5,median,align='center',fill=NA),
+           accel10=rollapply(first_d,10,median,align='center',fill=NA),
+           accel15=rollapply(first_d,15,median,align='center',fill=NA),
+           accel30=rollapply(first_d,30,median,align='center',fill=NA),
+           accel60=rollapply(first_d,60,median,align='center',fill=NA),
+           
+           ls5=rollapply(linspeed,5,median,align='center',fill=NA),
+           ls10=rollapply(linspeed,10,median,align='center',fill=NA),
+           ls15=rollapply(linspeed,15,median,align='center',fill=NA),
+           ls30=rollapply(linspeed,30,median,align='center',fill=NA),
+           ls60=rollapply(linspeed,60,median,align='center',fill=NA),
+           
+           tvel5=rollapply(tan_vel,5,median,align='center',fill=NA),
+           tvel10=rollapply(tan_vel,10,median,align='center',fill=NA),
+           tvel15=rollapply(tan_vel,15,median,align='center',fill=NA),
+           tvel30=rollapply(tan_vel,30,median,align='center',fill=NA),
+           tvel60=rollapply(tan_vel,60,median,align='center',fill=NA),
+           
+           rvel5=rollapply(rad_vel,5,median,align='center',fill=NA),
+           rvel10=rollapply(rad_vel,10,median,align='center',fill=NA),
+           rvel15=rollapply(rad_vel,15,median,align='center',fill=NA),
+           rvel30=rollapply(rad_vel,30,median,align='center',fill=NA),
+           rvel60=rollapply(rad_vel,60,median,align='center',fill=NA),
+           
+           
+           taccel5=rollapply(tan_accel,5,median,align='center',fill=NA),
+           taccel10=rollapply(tan_accel,10,median,align='center',fill=NA),
+           taccel15=rollapply(tan_accel,15,median,align='center',fill=NA),
+           taccel30=rollapply(tan_accel,30,median,align='center',fill=NA),
+           taccel60=rollapply(tan_accel,60,median,align='center',fill=NA),
+           
+           raccel5=rollapply(rad_accel,5,median,align='center',fill=NA),
+           raccel10=rollapply(rad_accel,10,median,align='center',fill=NA),
+           raccel15=rollapply(rad_accel,15,median,align='center',fill=NA),
+           raccel30=rollapply(rad_accel,30,median,align='center',fill=NA),
+           raccel60=rollapply(rad_accel,60,median,align='center',fill=NA),
+           
+           
+           vtvel5=rollapply(var_tan_vel,5,median,align='center',fill=NA),
+           vtvel10=rollapply(var_tan_vel,10,median,align='center',fill=NA),
+           vtvel15=rollapply(var_tan_vel,15,median,align='center',fill=NA),
+           vtvel30=rollapply(var_tan_vel,30,median,align='center',fill=NA),
+           vtvel60=rollapply(var_tan_vel,60,median,align='center',fill=NA),
+           
+           vrvel5=rollapply(var_rad_vel,5,median,align='center',fill=NA),
+           vrvel10=rollapply(var_rad_vel,10,median,align='center',fill=NA),
+           vrvel15=rollapply(var_rad_vel,15,median,align='center',fill=NA),
+           vrvel30=rollapply(var_rad_vel,30,median,align='center',fill=NA),
+           vrvel60=rollapply(var_rad_vel,60,median,align='center',fill=NA),
+           
+           vtaccel5=rollapply(var_tan_accel,5,median,align='center',fill=NA),
+           vtaccel10=rollapply(var_tan_accel,10,median,align='center',fill=NA),
+           vtaccel15=rollapply(var_tan_accel,15,median,align='center',fill=NA),
+           vtaccel30=rollapply(var_tan_accel,30,median,align='center',fill=NA),
+           vtaccel60=rollapply(var_tan_accel,60,median,align='center',fill=NA),
+           
+           vraccel5=rollapply(var_rad_accel,5,median,align='center',fill=NA),
+           vraccel10=rollapply(var_rad_accel,10,median,align='center',fill=NA),
+           vraccel15=rollapply(var_rad_accel,15,median,align='center',fill=NA),
+           vraccel30=rollapply(var_rad_accel,30,median,align='center',fill=NA),
+           vraccel60=rollapply(var_rad_accel,60,median,align='center',fill=NA),
+    ) %>%
+    na.omit()
+  
+  rparam2<-rparam[,c(10:76)]
+  set.seed(123)
+  pred.feat <- predict(rg.feat_all, data = rparam2) #Change rgfeat to right sex
+  
+  rpred<-pred.feat$predictions
+  # percent.table(rparam2$GT_sex, pred.feat$predictions)
+  rparam2<-cbind(rparam,rpred=rpred)
+  
+  
+  
+  ###########################################################################
+  ###APPEND APPROPRIATE SEX DESIGNATION (e.g. rg.feat_m/h)   #################
+  rparam_newpred<-rparam2
+  
+  ####### Add State to new plot before rbind
+  rparam_newpred= rparam_newpred %>% mutate(State = case_when(grepl('Herm.Dwell', rpred) ~ 1,
+                                                              grepl('Herm.Roam', rpred) ~ 2,
+                                                              grepl('Male.Dwell',rpred)~3,
+                                                              grepl('Male.Roam',rpred)~4,
+                                                              grepl('Male.Tail Chase',rpred)~5
+  )) %>% as.data.frame()
+  
+  ###########################################################################
+  
+  
+  
+  }
+
+# Extract the group names you want to analyze
+
+{
+  target.HMasc<-c("HermWT", "MaleWT","HermMasc")
+  target.Mfem<-c("HermWT", "MaleWT","MaleFem")
+  target.MOsmfem<-c("HermWT", "MaleWT","MaleSensFem")
+  target.HMPdfr<-c("HermWT", "MaleWT","HermPdfr","MalePdfr")
+  target.HMTph<-c("HermWT", "MaleWT","HermTph","MaleTph")
+  target.HMCat<-c("HermWT", "MaleWT","HermCat2","MaleCat2")
+  target.HMPdf1<-c("HermWT", "MaleWT","HermPdf1","MalePdf1")
+  target.HMPdf2<-c("HermWT", "MaleWT","HermPdf2","MalePdf2")
+  target.HMASI<-c("HermWT", "MaleWT","MaleASI")
+  target.HMPT<-c("HermWT", "MaleWT","HermPT","MalePT")
+  target.HML4<-c("HermWT", "MaleWT","HermL4","MaleL4")
+  target.HMLep2<-c("HermWT", "MaleWT","HermLep2","MaleLep2")
+  target.HMTFem<-c("HermWT", "MaleWT","HermLep2","MaleTFem")
+  target.Mod1<-c("HermWT", "MaleWT","HermMod1","MaleMod1")
+  target.PPdfr<-c("HermWT", "MaleWT","MalePPdfr")
+  target.unc31<-c("HermWT", "MaleWT","HermUnc31","MaleUnc31")
+  target.daf7<-c("HermWT", "MaleWT","HermDaf7","MaleDaf7")
+  target.MusM<-c("HermWT", "MaleWT","HermMusM","MaleMusM")
+  target.pdf12<-c("HermWT", "MaleWT","HermPdf12","MalePdf12")
+  target.pdfem<-c("HermWT","MaleWT","MalePdfem")
+  target.pdfrgof<-c("HermWT","MaleWT","HermPGof","MalePGof")
+  target.single<-c("HermWT","MaleWT","HermSingle","MaleSingle")
+  target.modfem<-c("HermWT","MaleWT","MaleModfem")
+  target.mtail<-c("HermWT","MaleWT","MaleTail")
+  
+  
+  
+  #Filter the proper controls for the comparisons
+  HMascpred.final= rparam_newpred %>% filter(group %in% target.HMasc)
+  Fempred.final= rparam_newpred %>% filter(group %in% target.Mfem) 
+  Osmfempred.final= rparam_newpred %>% filter(group %in% target.MOsmfem)
+  Pdfr1.final= rparam_newpred %>% filter(group %in% target.HMPdfr)
+  Tph1.final= rparam_newpred %>% filter(group %in% target.HMTph)
+  Cat2.final= rparam_newpred %>% filter(group %in% target.HMCat)
+  Pdf1.final= rparam_newpred %>% filter(group %in% target.HMPdf1)
+  Pdf2.final= rparam_newpred %>% filter(group %in% target.HMPdf2)
+  ASI.final= rparam_newpred %>% filter(group %in% target.HMASI)
+  PT.final= rparam_newpred %>% filter(group %in% target.HMPT)
+  L4.final= rparam_newpred %>% filter(group %in% target.HML4)
+  Lep2.final= rparam_newpred %>% filter(group %in% target.HMLep2)
+  TFem.final= rparam_newpred %>% filter(group %in% target.HMTFem)
+  Mod1.final= rparam_newpred %>% filter(group %in% target.Mod1)
+  PPdfr.final=rparam_newpred %>% filter(group %in% target.PPdfr)
+  unc31.final=rparam_newpred %>% filter(group %in% target.unc31)
+  daf7.final=rparam_newpred %>% filter(group %in% target.daf7)
+  MusM.final=rparam_newpred %>% filter(group %in% target.MusM)
+  pdf12.final=rparam_newpred %>% filter(group %in% target.pdf12)
+  pdfem.final=rparam_newpred %>% filter(group %in% target.pdfem)
+  pdfrgof.final=rparam_newpred %>% filter(group %in% target.pdfrgof)
+  single.final=rparam_newpred %>% filter(group %in% target.single)
+  modfem.final=rparam_newpred %>% filter(group %in% target.modfem)
+  mtail.final=rparam_newpred %>% filter(group %in% target.mtail)
+  
+  #Extract the dates and save as character
+  Date.HMasc<- rparam_newpred %>% filter(group=='HermMasc')
+  Date.HMasc<-unique(Date.HMasc$Date) %>% as.character()
+  Date.Mfem<- rparam_newpred %>% filter(group=='MaleFem')
+  Date.Mfem<- unique(Date.Mfem$Date) %>% as.character()
+  Date.MOsmfem<- rparam_newpred %>% filter(group=='MaleSensFem')
+  Date.MOsmfem<- unique(Date.MOsmfem$Date) %>% as.character()
+  Date.Pdfr1<- rparam_newpred %>% filter(grepl("Pdfr", group, ignore.case = TRUE)) %>% 
+    filter(!grepl("PPdfr", group, ignore.case = TRUE))
+  Date.Pdfr1<- unique(Date.Pdfr1$Date) %>% as.character()
+  Date.Tph1<- rparam_newpred %>% filter(grepl("Tph", group, ignore.case = TRUE))
+  Date.Tph1<- unique(Date.Tph1$Date) %>% as.character()
+  Date.Cat2<- rparam_newpred %>% filter(grepl("Cat", group, ignore.case = TRUE))
+  Date.Cat2<- unique(Date.Cat2$Date) %>% as.character()
+  Date.Pdf1<- rparam_newpred %>% filter(grepl("Pdf1", group, ignore.case = TRUE))
+  Date.Pdf1<- unique(Date.Pdf1$Date) %>% as.character()
+  Date.Pdf2<- rparam_newpred %>% filter(grepl("Pdf2", group, ignore.case = TRUE))
+  Date.Pdf2<- unique(Date.Pdf2$Date) %>% as.character()
+  Date.ASI<- rparam_newpred %>% filter(grepl("ASI", group, ignore.case = TRUE))
+  Date.ASI<- unique(Date.ASI$Date) %>% as.character()
+  Date.PT<- rparam_newpred %>% filter(grepl("PT", group, ignore.case = TRUE))
+  Date.PT<- unique(Date.PT$Date) %>% as.character()
+  Date.L4<- rparam_newpred %>% filter(grepl("L4", group, ignore.case = TRUE))
+  Date.L4<- unique(Date.L4$Date) %>% as.character()
+  Date.Lep2<- rparam_newpred %>% filter(grepl("Lep2", group, ignore.case = TRUE))
+  Date.Lep2<- unique(Date.Lep2$Date) %>% as.character()
+  Date.TFem<- rparam_newpred %>% filter(grepl("TFem", group, ignore.case = TRUE))
+  Date.TFem<- unique(Date.TFem$Date) %>% as.character()
+  Date.Mod1<- rparam_newpred %>% filter(grepl("Mod1", group, ignore.case = TRUE))
+  Date.Mod1<- unique(Date.Mod1$Date) %>% as.character()
+  Date.PPdfr<- rparam_newpred %>% filter(grepl("PPdfr", group, ignore.case = TRUE))
+  Date.PPdfr<- unique(Date.PPdfr$Date) %>% as.character()
+  Date.unc31<- rparam_newpred %>% filter(grepl("unc31", group, ignore.case = TRUE))
+  Date.unc31<- unique(Date.unc31$Date) %>% as.character()
+  Date.daf7<- rparam_newpred %>% filter(grepl("daf7", group, ignore.case = TRUE))
+  Date.daf7<- unique(Date.daf7$Date) %>% as.character()
+  Date.MusM<- rparam_newpred %>% filter(grepl("MusM", group, ignore.case = TRUE))
+  Date.MusM<- unique(Date.MusM$Date) %>% as.character()
+  Date.pdf12<- rparam_newpred %>% filter(grepl("pdf12", group, ignore.case = TRUE))
+  Date.pdf12<- unique(Date.pdf12$Date) %>% as.character()
+  Date.pdfem<- rparam_newpred %>% filter(grepl("pdfem", group, ignore.case = TRUE))
+  Date.pdfem<- unique(Date.pdfem$Date) %>% as.character()
+  Date.pdfrgof<- rparam_newpred %>% filter(grepl("pgof", group, ignore.case = TRUE))
+  Date.pdfrgof<- unique(Date.pdfrgof$Date) %>% as.character()
+  Date.single<- rparam_newpred %>% filter(grepl("single", group, ignore.case = TRUE))
+  Date.single<- unique(Date.single$Date) %>% as.character()
+  Date.modfem<- rparam_newpred %>% filter(grepl("Modfem", group, ignore.case = TRUE))
+  Date.modfem<- unique(Date.modfem$Date) %>% as.character()
+  Date.mtail<- rparam_newpred %>% filter(grepl("MaleTail", group, ignore.case = TRUE))
+  Date.mtail<- unique(Date.mtail$Date) %>% as.character()
+  
+  #Filter out the proper controls for mutants
+  HMascpred.final= HMascpred.final %>% filter(Date %in% Date.HMasc) %>% 
+    mutate(Exp="HermMasc") %>% unite(Exp.group,Exp,group, sep = ".", remove = FALSE) %>% as.data.frame()
+  Fempred.final= Fempred.final %>% filter(Date %in% Date.Mfem) %>% mutate(Exp="MaleFem") %>% 
+    unite(Exp.group,Exp,group, sep = ".", remove = FALSE) %>% as.data.frame()
+  Osmfempred.final= Osmfempred.final %>% filter(Date %in% Date.MOsmfem) %>% mutate(Exp="OsmFem") %>% 
+    unite(Exp.group,Exp,group, sep = ".", remove = FALSE) %>% as.data.frame()
+  Pdfr1.final= Pdfr1.final %>% filter(Date %in% Date.Pdfr1) %>% mutate(Exp="Pdfr1") %>%
+    unite(Exp.group,Exp,group, sep = ".", remove = FALSE) %>% as.data.frame()
+  Tph1.final= Tph1.final %>% filter(Date %in% Date.Tph1) %>% mutate(Exp="Tph1") %>%
+    unite(Exp.group,Exp,group, sep = ".", remove = FALSE) %>% as.data.frame()
+  Cat2.final= Cat2.final %>% filter(Date %in% Date.Cat2) %>% mutate(Exp="Cat2") %>%
+    unite(Exp.group,Exp,group, sep = ".", remove = FALSE) %>% as.data.frame()
+  Pdf1.final= Pdf1.final %>% filter(Date %in% Date.Pdf1) %>% mutate(Exp="Pdf1") %>% 
+    unite(Exp.group,Exp,group, sep = ".", remove = FALSE) %>% as.data.frame()
+  Pdf2.final= Pdf2.final %>% filter(Date %in% Date.Pdf2) %>% mutate(Exp="Pdf2") %>% 
+    unite(Exp.group,Exp,group, sep = ".", remove = FALSE) %>% as.data.frame()
+  ASI.final= ASI.final %>% filter(Date %in% Date.ASI) %>% mutate(Exp="ASI") %>% 
+    unite(Exp.group,Exp,group, sep = ".", remove = FALSE) %>% as.data.frame()
+  PT.final= PT.final %>% filter(Date %in% Date.PT) %>% mutate(Exp="PT") %>% 
+    unite(Exp.group,Exp,group, sep = ".", remove = FALSE) %>% as.data.frame()
+  L4.final= L4.final %>% filter(Date %in% Date.L4) %>% mutate(Exp="L4") %>% 
+    unite(Exp.group,Exp,group, sep = ".", remove = FALSE) %>% as.data.frame()
+  Lep2.final= Lep2.final %>% filter(Date %in% Date.Lep2) %>% mutate(Exp="Lep2") %>% 
+    unite(Exp.group,Exp,group, sep = ".", remove = FALSE) %>% as.data.frame()
+  TFem.final= TFem.final %>% filter(Date %in% Date.TFem) %>% mutate(Exp="TFem") %>% 
+    unite(Exp.group,Exp,group, sep = ".", remove = FALSE) %>% as.data.frame()
+  Mod1.final= Mod1.final %>% filter(Date %in% Date.Mod1) %>% mutate(Exp="Mod1") %>% 
+    unite(Exp.group,Exp,group, sep = ".", remove = FALSE) %>% as.data.frame()
+  PPdfr.final= PPdfr.final %>% filter(Date %in% Date.PPdfr) %>% mutate(Exp="PPdfr") %>% 
+    unite(Exp.group,Exp,group, sep = ".", remove = FALSE) %>% as.data.frame()
+  unc31.final= unc31.final %>% filter(Date %in% Date.unc31) %>% mutate(Exp="unc31") %>% 
+    unite(Exp.group,Exp,group, sep = ".", remove = FALSE) %>% as.data.frame()
+  daf7.final= daf7.final %>% filter(Date %in% Date.daf7) %>% mutate(Exp="daf-7") %>% 
+    unite(Exp.group,Exp,group, sep = ".", remove = FALSE) %>% as.data.frame()
+  MusM.final= MusM.final %>% filter(Date %in% Date.MusM) %>% mutate(Exp="MusM") %>% 
+    unite(Exp.group,Exp,group, sep = ".", remove = FALSE) %>% as.data.frame()
+  pdf12.final= pdf12.final %>% filter(Date %in% Date.pdf12) %>% mutate(Exp="pdf12") %>% 
+    unite(Exp.group,Exp,group, sep = ".", remove = FALSE) %>% as.data.frame()
+  pdfem.final= pdfem.final %>% filter(Date %in% Date.pdfem) %>% mutate(Exp="pdfem") %>% 
+    unite(Exp.group,Exp,group, sep = ".", remove = FALSE) %>% as.data.frame()
+  pdfrgof.final= pdfrgof.final %>% filter(Date %in% Date.pdfrgof) %>% mutate(Exp="pdfrgof") %>% 
+    unite(Exp.group,Exp,group, sep = ".", remove = FALSE) %>% as.data.frame()
+  single.final= single.final %>% filter(Date %in% Date.single) %>% mutate(Exp="single") %>% 
+    unite(Exp.group,Exp,group, sep = ".", remove = FALSE) %>% as.data.frame()
+  modfem.final= modfem.final %>% filter(Date %in% Date.modfem) %>% mutate(Exp="modfem") %>% 
+    unite(Exp.group,Exp,group, sep = ".", remove = FALSE) %>% as.data.frame()
+  mtail.final= mtail.final %>% filter(Date %in% Date.mtail) %>% mutate(Exp="maletail") %>% 
+    unite(Exp.group,Exp,group, sep = ".", remove = FALSE) %>% as.data.frame()
+  
+  Allpred.new=rbind(HMascpred.final,Fempred.final,Osmfempred.final,Pdfr1.final,Tph1.final,
+                    Cat2.final,Pdf1.final,Pdf2.final,ASI.final,PT.final,L4.final,Lep2.final,
+                    TFem.final,Mod1.final,PPdfr.final,unc31.final,daf7.final,MusM.final,
+                    pdf12.final,pdfem.final,pdfrgof.final,single.final,modfem.final,mtail.final)
+  
+  dbch= Allpred.new %>% filter(group=='MaleTail')# %>% select(worm_ID,Date,timebin,plateNumber,animalNumber,rpred) %>% 
+  #filter(grepl("Roam", rpred, ignore.case = TRUE))
+  
+}
+
+
+}
+
+# Allpred.new2= Allpred.new %>% select(-x,-y)
+# check= Allpred.new %>% filter(Date=="2023-10-28")
+# 
+# check= Allpred.new %>% filter(Exp=='pdf12')
+
+Allpred.exp.new= rbind(Allpred.exp,Allpred.new)
+  
+## Put it all together
+Allpred.test= rbind(Allpred.exp,Allpred.new2)
+
+### Check ratio 
+tabtest<-rparam_newpred %>% filter(group=='HermMusM')
+tabtest<-as.matrix(table(tabtest$rpred))
+prop.table(tabtest)
+
+
+
+
