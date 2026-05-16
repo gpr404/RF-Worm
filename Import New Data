@@ -7,7 +7,7 @@
 
 
 
-install.packages("rlang")
+#install.packages("rlang")
 ### Load Packages
 {
   library("SciViews")
@@ -119,6 +119,10 @@ merged.wrmt.new= map_dfr(files.wrmt.new,read_excel,col_types = "text", .id = "fi
                                    grepl(16, file) ~ 16,
                                    grepl(17, file) ~ 17,
                                    grepl(18, file) ~ 18,
+                                   grepl('Herm1cd1960', file) ~ 1,
+                                   grepl('Herm2cd1960', file) ~ 2,
+                                   grepl('Male1cd1960', file) ~ 1,
+                                   grepl('Male2cd1960', file) ~ 2,
                                    grepl(19, file) ~ 19,
                                    grepl(20, file) ~ 20,
                                    grepl(21, file) ~ 21,
@@ -144,7 +148,9 @@ merged.wrmt.new= map_dfr(files.wrmt.new,read_excel,col_types = "text", .id = "fi
                            grepl('Herm', file) ~ 'Herm')) %>%
     mutate(food = case_when(grepl('BF', file) ~ 'Big Food',
                             grepl('SF', file) ~ 'Small Food')) %>%
-    mutate(geno = case_when(grepl("Nhr",file, ignore.case = TRUE) ~ 'nhr-113',
+    mutate(geno = case_when(grepl("cd1961",file, ignore.case = TRUE) ~ 'd7-ko',
+                            grepl("cd1960",file, ignore.case = TRUE) ~ 'd7-up',
+                            grepl("Nhr",file, ignore.case = TRUE) ~ 'nhr-113',
                             grepl("ModFem",file, ignore.case = TRUE) ~ 'ModFem',
                             grepl("Single",file, ignore.case = TRUE) ~ 'single',
                             grepl("Gof",file, ignore.case = TRUE) ~ 'PdfrGof',
@@ -260,13 +266,17 @@ merged.wrmt.new= map_dfr(files.wrmt.new,read_excel,col_types = "text", .id = "fi
                              Sex == 'Male' & geno == 'PdfrGof' ~ 'HermPGof',
                              Sex == 'Male' & geno == 'single' ~ 'MaleSingle',
                              Sex == 'Male' & geno == 'ModFem' ~ 'MaleModfem',
-                             Sex == 'Male' & geno == 'nhr-113' ~ 'MaleTail'
+                             Sex == 'Male' & geno == 'nhr-113' ~ 'MaleTail',
+                             Sex == 'Herm' & geno == 'd7-up' ~ 'HermD7up',
+                             Sex == 'Herm' & geno == 'd7-ko' ~ 'HermD7ko',
+                             Sex == 'Male' & geno == 'd7-up' ~ 'MaleD7up',
+                             Sex == 'Male' & geno == 'd7-ko' ~ 'MaleD7ko',
     )) %>% mutate_at(c("x","y"),numbers) 
   
   }
 
 ##### Calculate Various Features of Tracks Prediction
-check= Worm.test.new %>% filter(group=='MaleTail') 
+check= Worm.test.new %>% filter(Date=='2025-05-26') 
 
 ######## Predicition Samples
 #####sample rate of video
@@ -339,7 +349,7 @@ mutate(linspeed=(linspeed/tim)*10) %>%
   filter(linspeed<0.4) %>%      # to get actual speed
   ungroup()
 
-check= tracks2.new %>% filter(group=='MalePdfem')
+check= tracks2.new %>% filter(group=='HermD7up')
 
 tracks.unbroken.new=tracks2.new
 
@@ -361,73 +371,73 @@ tracks2.new<- tracks2.new %>% mutate_at(c("timebin"),numbers) %>%
   
   #encode temporal dependence through centered median smoothing
   rparam=rparam %>% group_by(worm_ID) %>% 
-    mutate(ang5=rollapply(ang,5,median,align='center',fill=NA),
-           ang10=rollapply(ang,10,median,align='center',fill=NA),
-           ang15=rollapply(ang,15,median,align='center',fill=NA),
-           ang25=rollapply(ang,30,median,align='center',fill=NA),
-           ang60=rollapply(ang,60,median,align='center',fill=NA),
+    mutate(ang5=zoo::rollapply(ang,5,median,align='center',fill=NA),
+           ang10=zoo::rollapply(ang,10,median,align='center',fill=NA),
+           ang15=zoo::rollapply(ang,15,median,align='center',fill=NA),
+           ang25=zoo::rollapply(ang,30,median,align='center',fill=NA),
+           ang60=zoo::rollapply(ang,60,median,align='center',fill=NA),
            
-           accel5=rollapply(first_d,5,median,align='center',fill=NA),
-           accel10=rollapply(first_d,10,median,align='center',fill=NA),
-           accel15=rollapply(first_d,15,median,align='center',fill=NA),
-           accel30=rollapply(first_d,30,median,align='center',fill=NA),
-           accel60=rollapply(first_d,60,median,align='center',fill=NA),
+           accel5=zoo::rollapply(first_d,5,median,align='center',fill=NA),
+           accel10=zoo::rollapply(first_d,10,median,align='center',fill=NA),
+           accel15=zoo::rollapply(first_d,15,median,align='center',fill=NA),
+           accel30=zoo::rollapply(first_d,30,median,align='center',fill=NA),
+           accel60=zoo::rollapply(first_d,60,median,align='center',fill=NA),
            
-           ls5=rollapply(linspeed,5,median,align='center',fill=NA),
-           ls10=rollapply(linspeed,10,median,align='center',fill=NA),
-           ls15=rollapply(linspeed,15,median,align='center',fill=NA),
-           ls30=rollapply(linspeed,30,median,align='center',fill=NA),
-           ls60=rollapply(linspeed,60,median,align='center',fill=NA),
+           ls5=zoo::rollapply(linspeed,5,median,align='center',fill=NA),
+           ls10=zoo::rollapply(linspeed,10,median,align='center',fill=NA),
+           ls15=zoo::rollapply(linspeed,15,median,align='center',fill=NA),
+           ls30=zoo::rollapply(linspeed,30,median,align='center',fill=NA),
+           ls60=zoo::rollapply(linspeed,60,median,align='center',fill=NA),
            
-           tvel5=rollapply(tan_vel,5,median,align='center',fill=NA),
-           tvel10=rollapply(tan_vel,10,median,align='center',fill=NA),
-           tvel15=rollapply(tan_vel,15,median,align='center',fill=NA),
-           tvel30=rollapply(tan_vel,30,median,align='center',fill=NA),
-           tvel60=rollapply(tan_vel,60,median,align='center',fill=NA),
+           tvel5=zoo::rollapply(tan_vel,5,median,align='center',fill=NA),
+           tvel10=zoo::rollapply(tan_vel,10,median,align='center',fill=NA),
+           tvel15=zoo::rollapply(tan_vel,15,median,align='center',fill=NA),
+           tvel30=zoo::rollapply(tan_vel,30,median,align='center',fill=NA),
+           tvel60=zoo::rollapply(tan_vel,60,median,align='center',fill=NA),
            
-           rvel5=rollapply(rad_vel,5,median,align='center',fill=NA),
-           rvel10=rollapply(rad_vel,10,median,align='center',fill=NA),
-           rvel15=rollapply(rad_vel,15,median,align='center',fill=NA),
-           rvel30=rollapply(rad_vel,30,median,align='center',fill=NA),
-           rvel60=rollapply(rad_vel,60,median,align='center',fill=NA),
-           
-           
-           taccel5=rollapply(tan_accel,5,median,align='center',fill=NA),
-           taccel10=rollapply(tan_accel,10,median,align='center',fill=NA),
-           taccel15=rollapply(tan_accel,15,median,align='center',fill=NA),
-           taccel30=rollapply(tan_accel,30,median,align='center',fill=NA),
-           taccel60=rollapply(tan_accel,60,median,align='center',fill=NA),
-           
-           raccel5=rollapply(rad_accel,5,median,align='center',fill=NA),
-           raccel10=rollapply(rad_accel,10,median,align='center',fill=NA),
-           raccel15=rollapply(rad_accel,15,median,align='center',fill=NA),
-           raccel30=rollapply(rad_accel,30,median,align='center',fill=NA),
-           raccel60=rollapply(rad_accel,60,median,align='center',fill=NA),
+           rvel5=zoo::rollapply(rad_vel,5,median,align='center',fill=NA),
+           rvel10=zoo::rollapply(rad_vel,10,median,align='center',fill=NA),
+           rvel15=zoo::rollapply(rad_vel,15,median,align='center',fill=NA),
+           rvel30=zoo::rollapply(rad_vel,30,median,align='center',fill=NA),
+           rvel60=zoo::rollapply(rad_vel,60,median,align='center',fill=NA),
            
            
-           vtvel5=rollapply(var_tan_vel,5,median,align='center',fill=NA),
-           vtvel10=rollapply(var_tan_vel,10,median,align='center',fill=NA),
-           vtvel15=rollapply(var_tan_vel,15,median,align='center',fill=NA),
-           vtvel30=rollapply(var_tan_vel,30,median,align='center',fill=NA),
-           vtvel60=rollapply(var_tan_vel,60,median,align='center',fill=NA),
+           taccel5=zoo::rollapply(tan_accel,5,median,align='center',fill=NA),
+           taccel10=zoo::rollapply(tan_accel,10,median,align='center',fill=NA),
+           taccel15=zoo::rollapply(tan_accel,15,median,align='center',fill=NA),
+           taccel30=zoo::rollapply(tan_accel,30,median,align='center',fill=NA),
+           taccel60=zoo::rollapply(tan_accel,60,median,align='center',fill=NA),
            
-           vrvel5=rollapply(var_rad_vel,5,median,align='center',fill=NA),
-           vrvel10=rollapply(var_rad_vel,10,median,align='center',fill=NA),
-           vrvel15=rollapply(var_rad_vel,15,median,align='center',fill=NA),
-           vrvel30=rollapply(var_rad_vel,30,median,align='center',fill=NA),
-           vrvel60=rollapply(var_rad_vel,60,median,align='center',fill=NA),
+           raccel5=zoo::rollapply(rad_accel,5,median,align='center',fill=NA),
+           raccel10=zoo::rollapply(rad_accel,10,median,align='center',fill=NA),
+           raccel15=zoo::rollapply(rad_accel,15,median,align='center',fill=NA),
+           raccel30=zoo::rollapply(rad_accel,30,median,align='center',fill=NA),
+           raccel60=zoo::rollapply(rad_accel,60,median,align='center',fill=NA),
            
-           vtaccel5=rollapply(var_tan_accel,5,median,align='center',fill=NA),
-           vtaccel10=rollapply(var_tan_accel,10,median,align='center',fill=NA),
-           vtaccel15=rollapply(var_tan_accel,15,median,align='center',fill=NA),
-           vtaccel30=rollapply(var_tan_accel,30,median,align='center',fill=NA),
-           vtaccel60=rollapply(var_tan_accel,60,median,align='center',fill=NA),
            
-           vraccel5=rollapply(var_rad_accel,5,median,align='center',fill=NA),
-           vraccel10=rollapply(var_rad_accel,10,median,align='center',fill=NA),
-           vraccel15=rollapply(var_rad_accel,15,median,align='center',fill=NA),
-           vraccel30=rollapply(var_rad_accel,30,median,align='center',fill=NA),
-           vraccel60=rollapply(var_rad_accel,60,median,align='center',fill=NA),
+           vtvel5=zoo::rollapply(var_tan_vel,5,median,align='center',fill=NA),
+           vtvel10=zoo::rollapply(var_tan_vel,10,median,align='center',fill=NA),
+           vtvel15=zoo::rollapply(var_tan_vel,15,median,align='center',fill=NA),
+           vtvel30=zoo::rollapply(var_tan_vel,30,median,align='center',fill=NA),
+           vtvel60=zoo::rollapply(var_tan_vel,60,median,align='center',fill=NA),
+           
+           vrvel5=zoo::rollapply(var_rad_vel,5,median,align='center',fill=NA),
+           vrvel10=zoo::rollapply(var_rad_vel,10,median,align='center',fill=NA),
+           vrvel15=zoo::rollapply(var_rad_vel,15,median,align='center',fill=NA),
+           vrvel30=zoo::rollapply(var_rad_vel,30,median,align='center',fill=NA),
+           vrvel60=zoo::rollapply(var_rad_vel,60,median,align='center',fill=NA),
+           
+           vtaccel5=zoo::rollapply(var_tan_accel,5,median,align='center',fill=NA),
+           vtaccel10=zoo::rollapply(var_tan_accel,10,median,align='center',fill=NA),
+           vtaccel15=zoo::rollapply(var_tan_accel,15,median,align='center',fill=NA),
+           vtaccel30=zoo::rollapply(var_tan_accel,30,median,align='center',fill=NA),
+           vtaccel60=zoo::rollapply(var_tan_accel,60,median,align='center',fill=NA),
+           
+           vraccel5=zoo::rollapply(var_rad_accel,5,median,align='center',fill=NA),
+           vraccel10=zoo::rollapply(var_rad_accel,10,median,align='center',fill=NA),
+           vraccel15=zoo::rollapply(var_rad_accel,15,median,align='center',fill=NA),
+           vraccel30=zoo::rollapply(var_rad_accel,30,median,align='center',fill=NA),
+           vraccel60=zoo::rollapply(var_rad_accel,60,median,align='center',fill=NA),
     ) %>%
     na.omit()
   
@@ -486,6 +496,8 @@ tracks2.new<- tracks2.new %>% mutate_at(c("timebin"),numbers) %>%
   target.single<-c("HermWT","MaleWT","HermSingle","MaleSingle")
   target.modfem<-c("HermWT","MaleWT","MaleModfem")
   target.mtail<-c("HermWT","MaleWT","MaleTail")
+  target.d7up<-c("HermWT", "MaleWT","HermD7up","MaleD7up")
+  target.d7ko<-c("HermWT", "MaleWT","HermD7ko","MaleD7ko")
   
   
   
@@ -514,6 +526,8 @@ tracks2.new<- tracks2.new %>% mutate_at(c("timebin"),numbers) %>%
   single.final=rparam_newpred %>% filter(group %in% target.single)
   modfem.final=rparam_newpred %>% filter(group %in% target.modfem)
   mtail.final=rparam_newpred %>% filter(group %in% target.mtail)
+  d7up.final= rparam_newpred %>% filter(group %in% target.d7up)
+  d7ko.final= rparam_newpred %>% filter(group %in% target.d7ko)
   
   #Extract the dates and save as character
   Date.HMasc<- rparam_newpred %>% filter(group=='HermMasc')
@@ -565,10 +579,14 @@ tracks2.new<- tracks2.new %>% mutate_at(c("timebin"),numbers) %>%
   Date.modfem<- unique(Date.modfem$Date) %>% as.character()
   Date.mtail<- rparam_newpred %>% filter(grepl("MaleTail", group, ignore.case = TRUE))
   Date.mtail<- unique(Date.mtail$Date) %>% as.character()
+  Date.d7up<- rparam_newpred %>% filter(grepl("d7up", group, ignore.case = TRUE))
+  Date.d7up<- unique(Date.d7up$Date) %>% as.character()
+  Date.d7ko<- rparam_newpred %>% filter(grepl("d7ko", group, ignore.case = TRUE))
+  Date.d7ko<- unique(Date.d7ko$Date) %>% as.character()
   
   #Filter out the proper controls for mutants
   HMascpred.final= HMascpred.final %>% filter(Date %in% Date.HMasc) %>% 
-    mutate(Exp="HermMasc") %>% unite(Exp.group,Exp,group, sep = ".", remove = FALSE) %>% as.data.frame()
+    mutate(Exp="HermMasc") %>% unite(                          .group,Exp,group, sep = ".", remove = FALSE) %>% as.data.frame()
   Fempred.final= Fempred.final %>% filter(Date %in% Date.Mfem) %>% mutate(Exp="MaleFem") %>% 
     unite(Exp.group,Exp,group, sep = ".", remove = FALSE) %>% as.data.frame()
   Osmfempred.final= Osmfempred.final %>% filter(Date %in% Date.MOsmfem) %>% mutate(Exp="OsmFem") %>% 
@@ -615,13 +633,19 @@ tracks2.new<- tracks2.new %>% mutate_at(c("timebin"),numbers) %>%
     unite(Exp.group,Exp,group, sep = ".", remove = FALSE) %>% as.data.frame()
   mtail.final= mtail.final %>% filter(Date %in% Date.mtail) %>% mutate(Exp="maletail") %>% 
     unite(Exp.group,Exp,group, sep = ".", remove = FALSE) %>% as.data.frame()
+  d7up.final= d7up.final %>% filter(Date %in% Date.d7up) %>% mutate(Exp="d7up") %>% 
+    unite(Exp.group,Exp,group, sep = ".", remove = FALSE) %>% as.data.frame()
+  d7ko.final= d7ko.final %>% filter(Date %in% Date.d7ko) %>% mutate(Exp="d7ko") %>% 
+    unite(Exp.group,Exp,group, sep = ".", remove = FALSE) %>% as.data.frame()
   
   Allpred.new=rbind(HMascpred.final,Fempred.final,Osmfempred.final,Pdfr1.final,Tph1.final,
                     Cat2.final,Pdf1.final,Pdf2.final,ASI.final,PT.final,L4.final,Lep2.final,
                     TFem.final,Mod1.final,PPdfr.final,unc31.final,daf7.final,MusM.final,
-                    pdf12.final,pdfem.final,pdfrgof.final,single.final,modfem.final,mtail.final)
+                    pdf12.final,pdfem.final,pdfrgof.final,single.final,modfem.final,mtail.final,
+                    d7up.final, d7ko.final)
   
-  dbch= Allpred.new %>% filter(group=='MaleTail')# %>% select(worm_ID,Date,timebin,plateNumber,animalNumber,rpred) %>% 
+  d7ko.final
+  dbch= Allpred.new %>% filter(Date=='2025-05-26')# %>% select(worm_ID,Date,timebin,plateNumber,animalNumber,rpred) %>% 
   #filter(grepl("Roam", rpred, ignore.case = TRUE))
   
 }
@@ -640,10 +664,10 @@ Allpred.exp.new= rbind(Allpred.exp,Allpred.new)
 Allpred.test= rbind(Allpred.exp,Allpred.new2)
 
 ### Check ratio 
-tabtest<-rparam_newpred %>% filter(group=='HermMusM')
+tabtest<-rparam_newpred %>% filter(group=='MaleD7up')
 tabtest<-as.matrix(table(tabtest$rpred))
 prop.table(tabtest)
 
-
-
+### Did Greg read things wrong test
+check= All.GT %>% filter(Date== '2025-05-16') %>% filter(group=='MaleD7up')
 
