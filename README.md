@@ -1,5 +1,18 @@
 This code is intended to take XY coordinates from C. elegans tracks and analyze them using Random Forest to determine what locomotor state they are currently exhibiting. 
 
+This code was run on R version:
+
+status                                          
+major          4                                
+minor          4.2                              
+year           2024                             
+month          10                               
+day            31                               
+svn rev        87279                            
+language       R                                
+version.string R version 4.4.2 (2024-10-31 ucrt)
+nickname       Pile of Leaves 
+
 There are 4 major parts that should be run in this order AND in the same environment: 
 
 1. Calc Track Features + RF Model
