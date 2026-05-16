@@ -1,0 +1,797 @@
+### Make start point (0,0)
+All.tracks= All.GT %>% group_by(Exp,worm_ID) %>% 
+  mutate(xtrack = x - first(x = x)) %>% 
+  mutate(ytrack = y - first(x = y)) 
+
+# Randomly Select Worms
+WTS= All.tracks %>% group_by(Exp.group,worm_ID) %>% 
+  mutate(TL=n()) %>% filter(TL>450) %>% 
+  group_by(Exp.group) %>% distinct(worm_ID) %>% 
+  mutate(wnum=length(worm_ID)) %>% 
+  mutate(worm.n = case_when( wnum>= 10 ~ 10,
+                             wnum<10 ~ wnum))
+
+WTS.10= WTS %>% filter(worm.n>=10) %>% group_by(Exp.group) %>% sample_n(10)
+WTS.5= WTS %>% filter(worm.n<10) %>% group_by(Exp.group) %>% sample_n(5)
+
+unique(WTS.5$Exp.group)
+WTS.final=rbind(WTS.10,WTS.5)
+
+worm_ID_list<-unique(WTS.final$worm_ID)
+exp_list<-unique(WTS.final$Exp.group)
+
+# Select worms to graph
+All.TF= All.tracks %>% filter(worm_ID %in% worm_ID_list)
+
+#Make unique Colors per group
+generate_unique_colors <- function(unique_ids, control_id = NULL, control_color = NULL) {
+  # Calculate the number of unique IDs
+  num_ids <- length(unique_ids)
+  
+  # Calculate equally spaced hues for non-control groups
+  hues <- seq(15, 375, length.out = num_ids + 1)
+  hues <- hues[-(num_ids + 1)]  # Remove last hue to avoid repetition
+  
+  # Generate colors in HCL color space for non-control groups
+  colors <- hcl(h = hues, c = 100, l = 65)
+  
+  # Convert to hexadecimal format
+  hex_colors <- grDevices::col2rgb(colors)
+  hex_colors <- apply(hex_colors, 2, function(col) {
+    rgb(col[1], col[2], col[3], maxColorValue = 255)
+  })
+  
+  # Create a named vector of colors with IDs as names
+  id_color_map <- setNames(hex_colors, unique_ids)
+  
+  # If control group ID and color are specified, assign them
+  if (!is.null(control_id) && !is.null(control_color)) {
+    id_color_map[control_id] <- control_color
+  }
+  
+  # Return the named vector of colors
+  return(id_color_map)
+}
+
+
+
+# Extract unique group IDs
+track_group <- unique(All.TF$group)
+
+# Specify the control group ID and color
+control_group_ids <- c("HermWT", "MaleWT")
+control_group_colors <- c("#D13F20", "#494a80")
+
+
+# Generate unique colors for each group, using specific color for the control group
+group_colors <- generate_unique_colors(track_group, control_id = control_group_ids, control_color = control_group_colors)
+
+group_colors
+######### Plot tracks ###########
+
+
+{
+#MFem
+
+MFem.HWT.tr<-ggplot(All.TF %>% filter(Exp=="MaleFem") %>% filter(group=="HermWT"),
+       aes(xtrack, ytrack, color = group)) +
+  geom_point(size=.6)+
+  scale_color_manual(values = group_colors)+
+  geom_point(data = data.frame(x = 0, y = 0), aes(x, y), color = "black", size = 3) +  # Starting point
+  labs(x = "X", y = "Y") +
+  theme_minimal()+
+  expand_limits(x = c(-2, 2), y = c(-2, 2))+
+  theme(legend.text = element_text(size = 15),
+        legend.title = element_text(size = 15))
+
+MFem.HWT.tr
+MFem.MWT.tr<-ggplot(All.TF %>% filter(Exp=="MaleFem") %>% filter(group=="MaleWT"),
+                 aes(xtrack, ytrack, color = group)) +
+  geom_point(size=.6)+
+  scale_color_manual(values = group_colors)+
+  geom_point(data = data.frame(x = 0, y = 0), aes(x, y), color = "black", size = 3) +  # Starting point
+  labs( x = "X", y = "Y") +
+  theme_minimal()+
+  expand_limits(x = c(-2, 2), y = c(-2, 2))+
+  theme(legend.text = element_text(size = 15),
+        legend.title = element_text(size = 15))
+MFem.MWT.tr
+
+MFem.tr<-ggplot(All.TF %>% filter(Exp=="MaleFem") %>% filter(group=='MaleFem'),
+                         aes(xtrack, ytrack, color = group)) +
+  geom_point(size=.6)+
+  scale_color_manual(values = group_colors)+
+  geom_point(data = data.frame(x = 0, y = 0), aes(x, y), color = "black", size = 3) +  # Starting point
+  labs(x = "X", y = "Y") +
+  theme_minimal()+
+  expand_limits(x = c(-2, 2), y = c(-2, 2))+
+  theme(legend.text = element_text(size = 15),
+        legend.title = element_text(size = 15))
+
+#HMasc
+HMasc.HWT.tr<-ggplot(All.TF %>% filter(Exp=="HermMasc") %>% filter(group=="HermWT"),
+                    aes(xtrack, ytrack, color = group)) +
+  geom_point(size=.6)+
+  scale_color_manual(values = group_colors)+
+  geom_point(data = data.frame(x = 0, y = 0), aes(x, y), color = "black", size = 3) +  # Starting point
+  labs(x = "X", y = "Y") +
+  theme_minimal()+
+  expand_limits(x = c(-2, 2), y = c(-2, 2))+
+  theme(legend.text = element_text(size = 15),
+        legend.title = element_text(size = 15))
+
+
+HMasc.MWT.tr<-ggplot(All.TF %>% filter(Exp=="HermMasc") %>% filter(group=="MaleWT"),
+                    aes(xtrack, ytrack, color = group)) +
+  geom_point(size=.6)+
+  scale_color_manual(values = group_colors)+
+  geom_point(data = data.frame(x = 0, y = 0), aes(x, y), color = "black", size = 3) +  # Starting point
+  labs( x = "X", y = "Y") +
+  theme_minimal()+
+  expand_limits(x = c(-2, 2), y = c(-2, 2))+
+  theme(legend.text = element_text(size = 15),
+        legend.title = element_text(size = 15))
+
+HMasc.tr<-ggplot(All.TF %>% filter(group=='HermMasc'),
+                aes(xtrack, ytrack, color = group)) +
+  geom_point(size=.6)+
+  scale_color_manual(values = group_colors)+
+  geom_point(data = data.frame(x = 0, y = 0), aes(x, y), color = "black", size = 3) +  # Starting point
+  labs(x = "X", y = "Y") +
+  theme_minimal()+
+  expand_limits(x = c(-2, 2), y = c(-2, 2))+
+  theme(legend.text = element_text(size = 15),
+        legend.title = element_text(size = 15))
+
+#OsmFem
+OsmFem.HWT.tr<-ggplot(All.TF %>% filter(Exp=="OsmFem") %>% filter(group=="HermWT"),
+                     aes(xtrack, ytrack, color = group)) +
+  geom_point(size=.6)+
+  scale_color_manual(values = group_colors)+
+  geom_point(data = data.frame(x = 0, y = 0), aes(x, y), color = "black", size = 3) +  # Starting point
+  labs(x = "X", y = "Y") +
+  theme_minimal()+
+  expand_limits(x = c(-2, 2), y = c(-2, 2))+
+  theme(legend.text = element_text(size = 15),
+        legend.title = element_text(size = 15))
+
+OsmFem.MWT.tr<-ggplot(All.TF %>% filter(Exp=="OsmFem") %>% filter(group=="MaleWT"),
+                     aes(xtrack, ytrack, color = group)) +
+  geom_point(size=.6)+
+  scale_color_manual(values = group_colors)+
+  geom_point(data = data.frame(x = 0, y = 0), aes(x, y), color = "black", size = 3) +  # Starting point
+  labs( x = "X", y = "Y") +
+  theme_minimal()+
+  expand_limits(x = c(-2, 2), y = c(-2, 2))+
+  theme(legend.text = element_text(size = 15),
+        legend.title = element_text(size = 15))
+
+OsmFem.tr<-ggplot(All.TF %>% filter(group=="MaleSensFem"),
+                 aes(xtrack, ytrack, color = group)) +
+  geom_point(size=.6)+
+  scale_color_manual(values = group_colors)+
+  geom_point(data = data.frame(x = 0, y = 0), aes(x, y), color = "black", size = 3) +  # Starting point
+  labs(x = "X", y = "Y") +
+  theme_minimal()+
+  expand_limits(x = c(-2, 2), y = c(-2, 2))+
+  theme(legend.text = element_text(size = 15),
+        legend.title = element_text(size = 15))
+
+#Pdfr1
+Pdfr.HWT.tr<-ggplot(All.TF %>% filter(Exp=="Pdfr1") %>% filter(group=="HermWT"),
+                     aes(xtrack, ytrack, color = group)) +
+  geom_point(size=.6)+
+  scale_color_manual(values = group_colors)+
+  geom_point(data = data.frame(x = 0, y = 0), aes(x, y), color = "black", size = 3) +  # Starting point
+  labs(x = "X", y = "Y") +
+  theme_minimal()+
+  expand_limits(x = c(-2, 2), y = c(-2, 2))+
+  theme(legend.text = element_text(size = 15),
+        legend.title = element_text(size = 15))
+
+
+Pdfr.MWT.tr<-ggplot(All.TF %>% filter(Exp=="Pdfr1") %>% filter(group=="MaleWT"),
+                     aes(xtrack, ytrack, color = group)) +
+  geom_point(size=.6)+
+  scale_color_manual(values = group_colors)+
+  geom_point(data = data.frame(x = 0, y = 0), aes(x, y), color = "black", size = 3) +  # Starting point
+  labs( x = "X", y = "Y") +
+  theme_minimal()+
+  expand_limits(x = c(-2, 2), y = c(-2, 2))+
+  theme(legend.text = element_text(size = 15),
+        legend.title = element_text(size = 15))
+
+HPdfr.tr<-ggplot(All.TF %>% filter(group=='HermPdfr'),
+                 aes(xtrack, ytrack, color = group)) +
+  geom_point(size=.6)+
+  scale_color_manual(values = group_colors)+
+  geom_point(data = data.frame(x = 0, y = 0), aes(x, y), color = "black", size = 3) +  # Starting point
+  labs(x = "X", y = "Y") +
+  theme_minimal()+
+  expand_limits(x = c(-2, 2), y = c(-2, 2))+
+  theme(legend.text = element_text(size = 15),
+        legend.title = element_text(size = 15))
+
+MPdfr.tr<-ggplot(All.TF %>% filter(group=='MalePdfr'),
+                 aes(xtrack, ytrack, color = group)) +
+  geom_point(size=.6)+
+  scale_color_manual(values = group_colors)+
+  geom_point(data = data.frame(x = 0, y = 0), aes(x, y), color = "black", size = 3) +  # Starting point
+  labs(x = "X", y = "Y") +
+  theme_minimal()+
+  expand_limits(x = c(-2, 2), y = c(-2, 2))+
+  theme(legend.text = element_text(size = 15),
+        legend.title = element_text(size = 15))
+#Tph1
+Tph.HWT.tr<-ggplot(All.TF %>% filter(Exp=="Tph1") %>% filter(group=="HermWT"),
+                    aes(xtrack, ytrack, color = group)) +
+  geom_point(size=.6)+
+  scale_color_manual(values = group_colors)+
+  geom_point(data = data.frame(x = 0, y = 0), aes(x, y), color = "black", size = 3) +  # Starting point
+  labs(x = "X", y = "Y") +
+  theme_minimal()+
+  expand_limits(x = c(-2, 2), y = c(-2, 2))+
+  theme(legend.text = element_text(size = 15),
+        legend.title = element_text(size = 15))
+
+
+Tph.MWT.tr<-ggplot(All.TF %>% filter(Exp=="Tph1") %>% filter(group=="MaleWT"),
+                    aes(xtrack, ytrack, color = group)) +
+  geom_point(size=.6)+
+  scale_color_manual(values = group_colors)+
+  geom_point(data = data.frame(x = 0, y = 0), aes(x, y), color = "black", size = 3) +  # Starting point
+  labs( x = "X", y = "Y") +
+  theme_minimal()+
+  expand_limits(x = c(-2, 2), y = c(-2, 2))+
+  theme(legend.text = element_text(size = 15),
+        legend.title = element_text(size = 15))
+
+HTph.tr<-ggplot(All.TF %>% filter(group=='HermTph'),
+                 aes(xtrack, ytrack, color = group)) +
+  geom_point(size=.6)+
+  scale_color_manual(values = group_colors)+
+  geom_point(data = data.frame(x = 0, y = 0), aes(x, y), color = "black", size = 3) +  # Starting point
+  labs(x = "X", y = "Y") +
+  theme_minimal()+
+  expand_limits(x = c(-2, 2), y = c(-2, 2))+
+  theme(legend.text = element_text(size = 15),
+        legend.title = element_text(size = 15))
+
+MTph.tr<-ggplot(All.TF %>% filter(group=='MaleTph'),
+                 aes(xtrack, ytrack, color = group)) +
+  geom_point(size=.6)+
+  scale_color_manual(values = group_colors)+
+  geom_point(data = data.frame(x = 0, y = 0), aes(x, y), color = "black", size = 3) +  # Starting point
+  labs(x = "X", y = "Y") +
+  theme_minimal()+
+  expand_limits(x = c(-2, 2), y = c(-2, 2))+
+  theme(legend.text = element_text(size = 15),
+        legend.title = element_text(size = 15))
+
+#Pdf1
+Pdf1.HWT.tr<-ggplot(All.TF %>% filter(Exp=="Pdf1") %>% filter(group=="HermWT"),
+                    aes(xtrack, ytrack, color = group)) +
+  geom_point(size=.6)+
+  scale_color_manual(values = group_colors)+
+  geom_point(data = data.frame(x = 0, y = 0), aes(x, y), color = "black", size = 3) +  # Starting point
+  labs(x = "X", y = "Y") +
+  theme_minimal()+
+  expand_limits(x = c(-2, 2), y = c(-2, 2))+
+  theme(legend.text = element_text(size = 15),
+        legend.title = element_text(size = 15))
+
+
+Pdf1.MWT.tr<-ggplot(All.TF %>% filter(Exp=="Pdf1") %>% filter(group=="MaleWT"),
+                    aes(xtrack, ytrack, color = group)) +
+  geom_point(size=.6)+
+  scale_color_manual(values = group_colors)+
+  geom_point(data = data.frame(x = 0, y = 0), aes(x, y), color = "black", size = 3) +  # Starting point
+  labs( x = "X", y = "Y") +
+  theme_minimal()+
+  expand_limits(x = c(-2, 2), y = c(-2, 2))+
+  theme(legend.text = element_text(size = 15),
+        legend.title = element_text(size = 15))
+
+HPdf1.tr<-ggplot(All.TF %>% filter(group=='HermPdf1'),
+                 aes(xtrack, ytrack, color = group)) +
+  geom_point(size=.6)+
+  scale_color_manual(values = group_colors)+
+  geom_point(data = data.frame(x = 0, y = 0), aes(x, y), color = "black", size = 3) +  # Starting point
+  labs(x = "X", y = "Y") +
+  theme_minimal()+
+  expand_limits(x = c(-2, 2), y = c(-2, 2))+
+  theme(legend.text = element_text(size = 15),
+        legend.title = element_text(size = 15))
+
+MPdf1.tr<-ggplot(All.TF %>% filter(group=='MalePdf1'),
+                 aes(xtrack, ytrack, color = group)) +
+  geom_point(size=.6)+
+  scale_color_manual(values = group_colors)+
+  geom_point(data = data.frame(x = 0, y = 0), aes(x, y), color = "black", size = 3) +  # Starting point
+  labs(x = "X", y = "Y") +
+  theme_minimal()+
+  expand_limits(x = c(-2, 2), y = c(-2, 2))+
+  theme(legend.text = element_text(size = 15),
+        legend.title = element_text(size = 15))
+
+#Pdf2
+Pdf2.HWT.tr<-ggplot(All.TF %>% filter(Exp=="Pdf2") %>% filter(group=="HermWT"),
+                    aes(xtrack, ytrack, color = group)) +
+  geom_point(size=.6)+
+  scale_color_manual(values = group_colors)+
+  geom_point(data = data.frame(x = 0, y = 0), aes(x, y), color = "black", size = 3) +  # Starting point
+  labs(x = "X", y = "Y") +
+  theme_minimal()+
+  expand_limits(x = c(-2, 2), y = c(-2, 2))+
+  theme(legend.text = element_text(size = 15),
+        legend.title = element_text(size = 15))
+
+
+Pdf2.MWT.tr<-ggplot(All.TF %>% filter(Exp=="Pdf2") %>% filter(group=="MaleWT"),
+                    aes(xtrack, ytrack, color = group)) +
+  geom_point(size=.6)+
+  scale_color_manual(values = group_colors)+
+  geom_point(data = data.frame(x = 0, y = 0), aes(x, y), color = "black", size = 3) +  # Starting point
+  labs( x = "X", y = "Y") +
+  theme_minimal()+
+  expand_limits(x = c(-2, 2), y = c(-2, 2))+
+  theme(legend.text = element_text(size = 15),
+        legend.title = element_text(size = 15))
+
+HPdf2.tr<-ggplot(All.TF %>% filter(group=='HermPdf2'),
+                 aes(xtrack, ytrack, color = group)) +
+  geom_point(size=.6)+
+  scale_color_manual(values = group_colors)+
+  geom_point(data = data.frame(x = 0, y = 0), aes(x, y), color = "black", size = 3) +  # Starting point
+  labs(x = "X", y = "Y") +
+  theme_minimal()+
+  expand_limits(x = c(-2, 2), y = c(-2, 2))+
+  theme(legend.text = element_text(size = 15),
+        legend.title = element_text(size = 15))
+
+MPdf2.tr<-ggplot(All.TF %>% filter(group=='MalePdf2'),
+                 aes(xtrack, ytrack, color = group)) +
+  geom_point(size=.6)+
+  scale_color_manual(values = group_colors)+
+  geom_point(data = data.frame(x = 0, y = 0), aes(x, y), color = "black", size = 3) +  # Starting point
+  labs(x = "X", y = "Y") +
+  theme_minimal()+
+  expand_limits(x = c(-2, 2), y = c(-2, 2))+
+  theme(legend.text = element_text(size = 15),
+        legend.title = element_text(size = 15))
+
+#daf7
+daf7.HWT.tr<-ggplot(All.TF %>% filter(Exp=="daf-7") %>% filter(group=="HermWT"),
+                    aes(xtrack, ytrack, color = group)) +
+  geom_point(size=.6)+
+  scale_color_manual(values = group_colors)+
+  geom_point(data = data.frame(x = 0, y = 0), aes(x, y), color = "black", size = 3) +  # Starting point
+  labs(x = "X", y = "Y") +
+  theme_minimal()+
+  expand_limits(x = c(-2, 2), y = c(-2, 2))+
+  theme(legend.text = element_text(size = 15),
+        legend.title = element_text(size = 15))
+
+
+daf7.MWT.tr<-ggplot(All.TF %>% filter(Exp=="daf-7") %>% filter(group=="MaleWT"),
+                    aes(xtrack, ytrack, color = group)) +
+  geom_point(size=.6)+
+  scale_color_manual(values = group_colors)+
+  geom_point(data = data.frame(x = 0, y = 0), aes(x, y), color = "black", size = 3) +  # Starting point
+  labs( x = "X", y = "Y") +
+  theme_minimal()+
+  expand_limits(x = c(-2, 2), y = c(-2, 2))+
+  theme(legend.text = element_text(size = 15),
+        legend.title = element_text(size = 15))
+
+Hdaf7.tr<-ggplot(All.TF %>% filter(group=='HermDaf7'),
+                 aes(xtrack, ytrack, color = group)) +
+  geom_point(size=.6)+
+  scale_color_manual(values = group_colors)+
+  geom_point(data = data.frame(x = 0, y = 0), aes(x, y), color = "black", size = 3) +  # Starting point
+  labs(x = "X", y = "Y") +
+  theme_minimal()+
+  expand_limits(x = c(-2, 2), y = c(-2, 2))+
+  theme(legend.text = element_text(size = 15),
+        legend.title = element_text(size = 15))
+
+Mdaf7.tr<-ggplot(All.TF %>% filter(group=='MaleDaf7'),
+                 aes(xtrack, ytrack, color = group)) +
+  geom_point(size=.6)+
+  scale_color_manual(values = group_colors)+
+  geom_point(data = data.frame(x = 0, y = 0), aes(x, y), color = "black", size = 3) +  # Starting point
+  labs(x = "X", y = "Y") +
+  theme_minimal()+
+  expand_limits(x = c(-2, 2), y = c(-2, 2))+
+  theme(legend.text = element_text(size = 15),
+        legend.title = element_text(size = 15))
+
+#Cat-2
+Cat2.HWT.tr<-ggplot(All.TF %>% filter(Exp=="Cat2") %>% filter(group=="HermWT"),
+                    aes(xtrack, ytrack, color = group)) +
+  geom_point(size=.6)+
+  scale_color_manual(values = group_colors)+
+  geom_point(data = data.frame(x = 0, y = 0), aes(x, y), color = "black", size = 3) +  # Starting point
+  labs(x = "X", y = "Y") +
+  theme_minimal()+
+  expand_limits(x = c(-2, 2), y = c(-2, 2))+
+  theme(legend.text = element_text(size = 15),
+        legend.title = element_text(size = 15))
+
+
+Cat2.MWT.tr<-ggplot(All.TF %>% filter(Exp=="Cat2") %>% filter(group=="MaleWT"),
+                    aes(xtrack, ytrack, color = group)) +
+  geom_point(size=.6)+
+  scale_color_manual(values = group_colors)+
+  geom_point(data = data.frame(x = 0, y = 0), aes(x, y), color = "black", size = 3) +  # Starting point
+  labs( x = "X", y = "Y") +
+  theme_minimal()+
+  expand_limits(x = c(-2, 2), y = c(-2, 2))+
+  theme(legend.text = element_text(size = 15),
+        legend.title = element_text(size = 15))
+
+HCat2.tr<-ggplot(All.TF %>% filter(group=='HermCat2'),
+                 aes(xtrack, ytrack, color = group)) +
+  geom_point(size=.6)+
+  scale_color_manual(values = group_colors)+
+  geom_point(data = data.frame(x = 0, y = 0), aes(x, y), color = "black", size = 3) +  # Starting point
+  labs(x = "X", y = "Y") +
+  theme_minimal()+
+  expand_limits(x = c(-2, 2), y = c(-2, 2))+
+  theme(legend.text = element_text(size = 15),
+        legend.title = element_text(size = 15))
+
+MCat2.tr<-ggplot(All.TF %>% filter(group=='MaleCat2'),
+                 aes(xtrack, ytrack, color = group)) +
+  geom_point(size=.6)+
+  scale_color_manual(values = group_colors)+
+  geom_point(data = data.frame(x = 0, y = 0), aes(x, y), color = "black", size = 3) +  # Starting point
+  labs(x = "X", y = "Y") +
+  theme_minimal()+
+  expand_limits(x = c(-2, 2), y = c(-2, 2))+
+  theme(legend.text = element_text(size = 15),
+        legend.title = element_text(size = 15))
+
+#Pdf1/Pdf2 KO
+Pdf12.HWT.tr<-ggplot(All.TF %>% filter(Exp=="pdf12") %>% filter(group=="HermWT"),
+                    aes(xtrack, ytrack, color = group)) +
+  geom_point(size=.6)+
+  scale_color_manual(values = group_colors)+
+  geom_point(data = data.frame(x = 0, y = 0), aes(x, y), color = "black", size = 3) +  # Starting point
+  labs(x = "X", y = "Y") +
+  theme_minimal()+
+  expand_limits(x = c(-2, 2), y = c(-2, 2))+
+  theme(legend.text = element_text(size = 15),
+        legend.title = element_text(size = 15))
+
+Pdf12.MWT.tr<-ggplot(All.TF %>% filter(Exp=="pdf12") %>% filter(group=="MaleWT"),
+                    aes(xtrack, ytrack, color = group)) +
+  geom_point(size=.6)+
+  scale_color_manual(values = group_colors)+
+  geom_point(data = data.frame(x = 0, y = 0), aes(x, y), color = "black", size = 3) +  # Starting point
+  labs( x = "X", y = "Y") +
+  theme_minimal()+
+  expand_limits(x = c(-2, 2), y = c(-2, 2))+
+  theme(legend.text = element_text(size = 15),
+        legend.title = element_text(size = 15))
+
+HPdf12.tr<-ggplot(All.TF %>% filter(group=='HermPdf12'),
+                 aes(xtrack, ytrack, color = group)) +
+  geom_point(size=.6)+
+  scale_color_manual(values = group_colors)+
+  geom_point(data = data.frame(x = 0, y = 0), aes(x, y), color = "black", size = 3) +  # Starting point
+  labs(x = "X", y = "Y") +
+  theme_minimal()+
+  expand_limits(x = c(-2, 2), y = c(-2, 2))+
+  theme(legend.text = element_text(size = 15),
+        legend.title = element_text(size = 15))
+
+MPdf12.tr<-ggplot(All.TF %>% filter(group=='MalePdf12'),
+                 aes(xtrack, ytrack, color = group)) +
+  geom_point(size=.6)+
+  scale_color_manual(values = group_colors)+
+  geom_point(data = data.frame(x = 0, y = 0), aes(x, y), color = "black", size = 3) +  # Starting point
+  labs(x = "X", y = "Y") +
+  theme_minimal()+
+  expand_limits(x = c(-2, 2), y = c(-2, 2))+
+  theme(legend.text = element_text(size = 15),
+        legend.title = element_text(size = 15))
+
+#PdfrFem
+Pdfem.HWT.tr<-ggplot(All.TF %>% filter(Exp=="pdfem") %>% filter(group=="HermWT"),
+                    aes(xtrack, ytrack, color = group)) +
+  geom_point(size=.6)+
+  scale_color_manual(values = group_colors)+
+  geom_point(data = data.frame(x = 0, y = 0), aes(x, y), color = "black", size = 3) +  # Starting point
+  labs(x = "X", y = "Y") +
+  theme_minimal()+
+  expand_limits(x = c(-2, 2), y = c(-2, 2))+
+  theme(legend.text = element_text(size = 15),
+        legend.title = element_text(size = 15))
+
+
+Pdfem.MWT.tr<-ggplot(All.TF %>% filter(Exp=="pdfem") %>% filter(group=="MaleWT"),
+                    aes(xtrack, ytrack, color = group)) +
+  geom_point(size=.6)+
+  scale_color_manual(values = group_colors)+
+  geom_point(data = data.frame(x = 0, y = 0), aes(x, y), color = "black", size = 3) +  # Starting point
+  labs( x = "X", y = "Y") +
+  theme_minimal()+
+  expand_limits(x = c(-2, 2), y = c(-2, 2))+
+  theme(legend.text = element_text(size = 15),
+        legend.title = element_text(size = 15))
+
+HPdfem.tr<-ggplot(All.TF %>% filter(group=='HermPdfem'),
+                 aes(xtrack, ytrack, color = group)) +
+  geom_point(size=.6)+
+  scale_color_manual(values = group_colors)+
+  geom_point(data = data.frame(x = 0, y = 0), aes(x, y), color = "black", size = 3) +  # Starting point
+  labs(x = "X", y = "Y") +
+  theme_minimal()+
+  expand_limits(x = c(-2, 2), y = c(-2, 2))+
+  theme(legend.text = element_text(size = 15),
+        legend.title = element_text(size = 15))
+
+MPdfem.tr<-ggplot(All.TF %>% filter(group=='MalePdfem'),
+                 aes(xtrack, ytrack, color = group)) +
+  geom_point(size=.6)+
+  scale_color_manual(values = group_colors)+
+  geom_point(data = data.frame(x = 0, y = 0), aes(x, y), color = "black", size = 3) +  # Starting point
+  labs(x = "X", y = "Y") +
+  theme_minimal()+
+  expand_limits(x = c(-2, 2), y = c(-2, 2))+
+  theme(legend.text = element_text(size = 15),
+        legend.title = element_text(size = 15))
+
+#Pdfr Gof
+Pdfgof.HWT.tr<-ggplot(All.TF %>% filter(Exp=="pdfrgof") %>% filter(group=="HermWT"),
+                     aes(xtrack, ytrack, color = group)) +
+  geom_point(size=.6)+
+  scale_color_manual(values = group_colors)+
+  geom_point(data = data.frame(x = 0, y = 0), aes(x, y), color = "black", size = 3) +  # Starting point
+  labs(x = "X", y = "Y") +
+  theme_minimal()+
+  expand_limits(x = c(-2, 2), y = c(-2, 2))+
+  theme(legend.text = element_text(size = 15),
+        legend.title = element_text(size = 15))
+
+
+Pdfgof.MWT.tr<-ggplot(All.TF %>% filter(Exp=="pdfrgof") %>% filter(group=="MaleWT"),
+                    aes(xtrack, ytrack, color = group)) +
+  geom_point(size=.6)+
+  scale_color_manual(values = group_colors)+
+  geom_point(data = data.frame(x = 0, y = 0), aes(x, y), color = "black", size = 3) +  # Starting point
+  labs( x = "X", y = "Y") +
+  theme_minimal()+
+  expand_limits(x = c(-2, 2), y = c(-2, 2))+
+  theme(legend.text = element_text(size = 15),
+        legend.title = element_text(size = 15))
+
+HPdfgof.tr<-ggplot(All.TF %>% filter(group=='HermPGof'),
+                  aes(xtrack, ytrack, color = group)) +
+  geom_point(size=.6)+
+  scale_color_manual(values = group_colors)+
+  geom_point(data = data.frame(x = 0, y = 0), aes(x, y), color = "black", size = 3) +  # Starting point
+  labs(x = "X", y = "Y") +
+  theme_minimal()+
+  expand_limits(x = c(-2, 2), y = c(-2, 2))+
+  theme(legend.text = element_text(size = 15),
+        legend.title = element_text(size = 15))
+
+MPdfgof.tr<-ggplot(All.TF %>% filter(group=='MalePGof'),
+                  aes(xtrack, ytrack, color = group)) +
+  geom_point(size=.6)+
+  scale_color_manual(values = group_colors)+
+  geom_point(data = data.frame(x = 0, y = 0), aes(x, y), color = "black", size = 3) +  # Starting point
+  labs(x = "X", y = "Y") +
+  theme_minimal()+
+  expand_limits(x = c(-2, 2), y = c(-2, 2))+
+  theme(legend.text = element_text(size = 15),
+        legend.title = element_text(size = 15))
+
+#D7 up
+D7up.HWT.tr<-ggplot(All.TF %>% filter(Exp=="d7up") %>% filter(group=="HermWT"),
+                      aes(xtrack, ytrack, color = group)) +
+  geom_point(size=.6)+
+  scale_color_manual(values = group_colors)+
+  geom_point(data = data.frame(x = 0, y = 0), aes(x, y), color = "black", size = 3) +  # Starting point
+  labs(x = "X", y = "Y") +
+  theme_minimal()+
+  expand_limits(x = c(-2, 2), y = c(-2, 2))+
+  theme(legend.text = element_text(size = 15),
+        legend.title = element_text(size = 15))
+
+
+D7up.MWT.tr<-ggplot(All.TF %>% filter(Exp=="d7up") %>% filter(group=="MaleWT"),
+                      aes(xtrack, ytrack, color = group)) +
+  geom_point(size=.6)+
+  scale_color_manual(values = group_colors)+
+  geom_point(data = data.frame(x = 0, y = 0), aes(x, y), color = "black", size = 3) +  # Starting point
+  labs( x = "X", y = "Y") +
+  theme_minimal()+
+  expand_limits(x = c(-2, 2), y = c(-2, 2))+
+  theme(legend.text = element_text(size = 15),
+        legend.title = element_text(size = 15))
+
+HD7up.tr<-ggplot(All.TF %>% filter(group=='HermD7up'),
+                   aes(xtrack, ytrack, color = group)) +
+  geom_point(size=.6)+
+  scale_color_manual(values = group_colors)+
+  geom_point(data = data.frame(x = 0, y = 0), aes(x, y), color = "black", size = 3) +  # Starting point
+  labs(x = "X", y = "Y") +
+  theme_minimal()+
+  expand_limits(x = c(-2, 2), y = c(-2, 2))+
+  theme(legend.text = element_text(size = 15),
+        legend.title = element_text(size = 15))
+
+MD7up.tr<-ggplot(All.TF %>% filter(group=='MaleD7up'),
+                   aes(xtrack, ytrack, color = group)) +
+  geom_point(size=.6)+
+  scale_color_manual(values = group_colors)+
+  geom_point(data = data.frame(x = 0, y = 0), aes(x, y), color = "black", size = 3) +  # Starting point
+  labs(x = "X", y = "Y") +
+  theme_minimal()+
+  expand_limits(x = c(-2, 2), y = c(-2, 2))+
+  theme(legend.text = element_text(size = 15),
+        legend.title = element_text(size = 15))
+
+D7up.MWT.tr
+
+#D7 ko
+D7ko.HWT.tr<-ggplot(All.TF %>% filter(Exp=="d7ko") %>% filter(group=="HermWT"),
+                    aes(xtrack, ytrack, color = group)) +
+  geom_point(size=.6)+
+  scale_color_manual(values = group_colors)+
+  geom_point(data = data.frame(x = 0, y = 0), aes(x, y), color = "black", size = 3) +  # Starting point
+  labs(x = "X", y = "Y") +
+  theme_minimal()+
+  expand_limits(x = c(-2, 2), y = c(-2, 2))+
+  theme(legend.text = element_text(size = 15),
+        legend.title = element_text(size = 15))
+
+
+D7ko.MWT.tr<-ggplot(All.TF %>% filter(Exp=="d7ko") %>% filter(group=="MaleWT"),
+                    aes(xtrack, ytrack, color = group)) +
+  geom_point(size=.6)+
+  scale_color_manual(values = group_colors)+
+  geom_point(data = data.frame(x = 0, y = 0), aes(x, y), color = "black", size = 3) +  # Starting point
+  labs( x = "X", y = "Y") +
+  theme_minimal()+
+  expand_limits(x = c(-2, 2), y = c(-2, 2))+
+  theme(legend.text = element_text(size = 15),
+        legend.title = element_text(size = 15))
+
+HD7ko.tr<-ggplot(All.TF %>% filter(group=='HermD7ko'),
+                 aes(xtrack, ytrack, color = group)) +
+  geom_point(size=.6)+
+  scale_color_manual(values = group_colors)+
+  geom_point(data = data.frame(x = 0, y = 0), aes(x, y), color = "black", size = 3) +  # Starting point
+  labs(x = "X", y = "Y") +
+  theme_minimal()+
+  expand_limits(x = c(-2, 2), y = c(-2, 2))+
+  theme(legend.text = element_text(size = 15),
+        legend.title = element_text(size = 15))
+
+MD7ko.tr<-ggplot(All.TF %>% filter(group=='MaleD7ko'),
+                 aes(xtrack, ytrack, color = group)) +
+  geom_point(size=.6)+
+  scale_color_manual(values = group_colors)+
+  geom_point(data = data.frame(x = 0, y = 0), aes(x, y), color = "black", size = 3) +  # Starting point
+  labs(x = "X", y = "Y") +
+  theme_minimal()+
+  expand_limits(x = c(-2, 2), y = c(-2, 2))+
+  theme(legend.text = element_text(size = 15),
+        legend.title = element_text(size = 15))
+
+}
+
+#Put in big list to export images
+class(MFem.HWT.tr)
+
+MFem.HWT.tr 
+MFem.MWT.tr
+MFem.tr
+HMasc.HWT.tr
+HMasc.MWT.tr
+HMasc.tr
+Pdfr.HWT.tr
+Pdfr.MWT.tr
+HPdfr.tr
+MPdfr.tr
+Tph.HWT.tr
+Tph.MWT.tr
+HTph.tr
+MTph.tr
+Pdf1.HWT.tr
+Pdf1.MWT.tr
+HPdf1.tr
+MPdf1.tr
+Pdf2.HWT.tr
+Pdf2.MWT.tr
+HPdf2.tr
+MPdf2.tr
+daf7.HWT.tr
+daf7.MWT.tr
+Hdaf7.tr
+Mdaf7.tr
+Cat2.MWT.tr
+MCat2.tr
+Pdf12.HWT.tr
+Pdf12.MWT.tr
+HPdf12.tr
+MPdf12.tr
+Pdfgof.HWT.tr
+Pdfgof.MWT.tr
+HPdfgof.tr
+MPdfgof.tr
+### Save ggplots
+
+# Make List
+
+track.plot<-list()
+{
+track.plot[["MFem.HWT"]]<-MFem.HWT.tr 
+track.plot[["MFem.MWT"]]<-MFem.MWT.tr
+track.plot[["MFem"]]<-MFem.tr
+track.plot[["HMasc.HWT"]]<-HMasc.HWT.tr
+track.plot[["HMasc.MWT"]]<-HMasc.MWT.tr
+track.plot[["HMasc"]]<-HMasc.tr
+track.plot[["Pdfr.HWT"]]<-Pdfr.HWT.tr
+track.plot[["Pdfr.MWT"]]<-Pdfr.MWT.tr
+track.plot[["HPdfr"]]<-HPdfr.tr
+track.plot[["MPdfr"]]<-MPdfr.tr
+track.plot[["Tph.HWT"]]<-Tph.HWT.tr
+track.plot[["Tph.MWT"]]<-Tph.MWT.tr
+track.plot[["HTph"]]<-HTph.tr
+track.plot[["MTph"]]<-MTph.tr
+track.plot[["Pdf1.HWT"]]<-Pdf1.HWT.tr
+track.plot[["Pdf1.MWT"]]<-Pdf1.MWT.tr
+track.plot[["HPdf1"]]<-HPdf1.tr
+track.plot[["MPdf1"]]<-MPdf1.tr
+track.plot[["Pdf2.HWT"]]<-Pdf2.HWT.tr
+track.plot[["Pdf2.MWT"]]<-Pdf2.MWT.tr
+track.plot[["HPdf2"]]<-HPdf2.tr
+track.plot[["MPdf2"]]<-MPdf2.tr
+track.plot[["daf7.HWT"]]<-daf7.HWT.tr
+track.plot[["daf7.MWT"]]<-daf7.MWT.tr
+track.plot[["Hdaf7"]]<-Hdaf7.tr
+track.plot[["Mdaf7"]]<-Mdaf7.tr
+track.plot[["Cat2.MWT"]]<-Cat2.MWT.tr
+track.plot[["MCat2"]]<-MCat2.tr
+track.plot[["Pdf12.HWT"]]<-Pdf12.HWT.tr
+track.plot[["Pdf12.MWT"]]<-Pdf12.MWT.tr
+track.plot[["HPdf12"]]<-HPdf12.tr
+track.plot[["MPdf12"]]<-MPdf12.tr
+track.plot[["Pdfgof.HWT"]]<-Pdfgof.HWT.tr
+track.plot[["Pdfgof.MWT"]]<-Pdfgof.MWT.tr
+track.plot[["HPdfgof"]]<-HPdfgof.tr
+track.plot[["MPdfgof"]]<-MPdfgof.tr
+track.plot[["Pdfem.HWT"]]<-Pdfem.HWT.tr
+track.plot[["Pdfem.MWT"]]<-Pdfem.MWT.tr
+track.plot[["Mpdfem"]]<-MPdfem.tr
+track.plot[["OsmFem.HWT"]]<-OsmFem.HWT.tr
+track.plot[["OsmFem.MWT"]]<-OsmFem.MWT.tr
+track.plot[["Hd7up"]]<-HD7up.tr
+track.plot[["Md7up"]]<-MD7up.tr
+track.plot[["d7up.HWT"]]<-D7up.HWT.tr
+track.plot[["d7up.MWT"]]<-D7up.MWT.tr
+track.plot[["Hd7ko"]]<-HD7ko.tr
+track.plot[["Md7ko"]]<-MD7ko.tr
+track.plot[["d7ko.HWT"]]<-D7ko.HWT.tr
+track.plot[["d7ko.MWT"]]<-D7ko.MWT.tr
+}
+track.plot[["Hd7ko"]]
+# Specify the directory where you want to save the plots
+output_directory <- choose.dir()  # Change this to your desired directory
+
+tracks.plot
+# Loop through the list and save each plot
+for (plot_name in names(track.plot)) {
+  # Save each plot to a .svg file with its respective variable name
+  ggsave(filename = file.path(output_directory, paste0(plot_name, ".svg")), plot = track.plot[[plot_name]], device = "svg")
+}
+
+
+
+
+
