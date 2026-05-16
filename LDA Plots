@@ -1,0 +1,843 @@
+### Better LDA plots and Tracks 
+
+##### LDA Plots
+
+###Get WT
+#install.packages("svglite")
+library(svglite)
+library(ggforce)
+
+lin.LDA= All.GT %>% filter(grepl("WT", group)) %>% filter(rpred.smooth!=TRUE)
+#mutate(group = case_when(grepl('HermFoodNSF', group) ~ "HermWT",
+#grepl('MaleFoodNSF', group) ~ "MaleWT",
+#TRUE ~ group))  
+check= lin.LDA %>% filter(Exp=="pdfrgof")
+
+#Fix the States to be the define
+lin.LDA= lin.LDA %>%
+  mutate(State.Line = case_when(grepl('Herm.Dwell', rpred.smooth) ~ "Dwell",
+                                grepl('Herm.Roam', rpred.smooth) ~ "Roam",
+                                grepl('Male.Dwell',rpred.smooth)~"Dwell",
+                                grepl('Male.Roam',rpred.smooth)~"Roam",
+                                grepl('Male.Tail Chase',rpred.smooth)~"Dwell")) %>% 
+  as.data.frame() %>% unite(State.Sex,State.Line,Sex, sep = ".", remove = FALSE)
+
+lin2.test<-lin.LDA[,c(1,7,81,83,82,12:19,24:58)]
+
+
+
+unique(lin2.test$worm_ID)
+
+RNGkind(sample.kind = "Rounding")
+set.seed(123)
+linear <- lda(rpred.smooth~., lin2.test[,c(5:48)])
+
+
+
+# Check LDA results
+linear
+
+
+# Check LDA factors for influence
+LDA.explain=linear$scaling %>% as.data.frame() %>% tibble::rownames_to_column() %>% 
+  rename_at('rowname',~'feature') %>% mutate(across(c(2:4), abs)) %>% top_n(5)
+
+LDA.LD1=ggplot(LDA.explain,aes(x=reorder(feature,LD1),y=LD1))+
+  geom_bar(stat = 'identity')+
+  coord_flip()+
+  labs(y='LD1 value',x='Features', title='LD1 Eigenvalues') +
+  theme(plot.title = element_text(hjust=0.5, size=15, face='bold'))+
+  theme(axis.text.x = element_text(size = 12),
+        axis.text.y = element_text(size = 12),
+        axis.title.y = element_text(size = 14),
+        axis.title.x = element_text(size = 14))
+
+LDA.LD2=ggplot(LDA.explain,aes(x=reorder(feature,LD2),y=LD2))+
+  geom_bar(stat = 'identity')+
+  coord_flip()+
+  labs(y='LD2 value',x='Features', title='LD2 Eigenvalues') +
+  theme(plot.title = element_text(hjust=0.5, size=15, face='bold'))+
+  theme(axis.text.x = element_text(size = 12),
+        axis.text.y = element_text(size = 12),
+        axis.title.y = element_text(size = 14),
+        axis.title.x = element_text(size = 14))
+
+
+
+LDA.LD1
+LDA.LD2
+
+test.LDA=as.data.frame(predict(linear)$x)
+LDA.WT= cbind(test.LDA,lin2.test)
+# mutate(check=1) %>%
+# mutate(State.ex = case_when(grepl('Herm.Dwell', rpred.smooth) ~ "Dwell",
+#                             grepl('Herm.Roam', rpred.smooth) ~ "Roam",
+#                             grepl('Male.Dwell',rpred.smooth)~"Dwell",
+#                             grepl('Male.Roam',rpred.smooth)~"Roam",
+#                             grepl('Male.Tail Chase',rpred.smooth)~"Tail Chase")) %>%
+# unite(State.G,State.ex,group, sep = ".", remove = FALSE) %>%
+# as.data.frame()
+
+
+### Pred New 
+lin.LP =All.GT %>% filter(!grepl("WT", group)) %>% filter(rpred.smooth!=TRUE) %>% 
+  mutate(State.Line = case_when(grepl('Herm.Dwell', rpred.smooth) ~ "Dwell",
+                                grepl('Herm.Roam', rpred.smooth) ~ "Roam",
+                                grepl('Male.Dwell',rpred.smooth)~"Dwell",
+                                grepl('Male.Roam',rpred.smooth)~"Roam",
+                                grepl('Male.Tail Chase',rpred.smooth)~"Tail Chase")) %>% 
+  as.data.frame() %>% unite(State.Sex,State.Line,Sex, sep = ".", remove = FALSE)
+
+lin.LP2<-lin.LP[,c(1,7,81,83,82,12:19,24:58)]
+#lin2<-lin[,c(10:52)]
+#lin.LP2<-lin.LP2 %>% group_by(Sex,Exp,group,worm_ID,State.Sex) %>% 
+# summarise(across(everything(), list(mean))) %>% as.data.frame()
+
+#lin2.NP<- as.data.frame(scale(lin.LP2[,c(5:47)]))
+
+# lin2.LP<- lin2 %>% select(1:4,48)
+# 
+# lin2.FP<-cbind(lin2.LP,lin2.NP)
+
+LDA.PredR<-predict(linear,lin.LP2[,c(5:48)])$x
+
+LDA.PPR= cbind(lin.LP2,LDA.PredR) 
+
+## Make big DF
+#LDA.WT2= LDA.WT %>% select(-Sex) 
+LDA.All= rbind(LDA.WT,LDA.PPR)
+
+LDA.All=LDA.All %>% unite(LDA.State,group,State.Line, sep = ".", remove = FALSE)
+
+### MAKE PLOTS ################
+# Get the right colors 
+# Function get unique colors per group
+#Make unique Colors per group
+
+# Get Controls 
+# Specify the control group ID and color
+generate_unique_colors <- function(unique_ids, control_id = NULL, control_color = NULL) {
+  # Calculate the number of unique IDs
+  num_ids <- length(unique_ids)
+  
+  # Calculate equally spaced hues for non-control groups
+  hues <- seq(15, 375, length.out = num_ids + 1)
+  hues <- hues[-(num_ids + 1)]  # Remove last hue to avoid repetition
+  
+  # Generate colors in HCL color space for non-control groups
+  colors <- hcl(h = hues, c = 100, l = 65)
+  
+  # Convert to hexadecimal format
+  hex_colors <- grDevices::col2rgb(colors)
+  hex_colors <- apply(hex_colors, 2, function(col) {
+    rgb(col[1], col[2], col[3], maxColorValue = 255)
+  })
+  
+  # Create a named vector of colors with IDs as names
+  id_color_map <- setNames(hex_colors, unique_ids)
+  
+  # If control group ID and color are specified, assign them
+  if (!is.null(control_id) && !is.null(control_color)) {
+    id_color_map[control_id] <- control_color
+  }
+  
+  # Return the named vector of colors
+  return(id_color_map)
+}
+
+
+
+# Extract unique group IDs
+track_group <- unique(LDA.All$group)
+
+# Specify the control group ID and color
+control_group_ids <- c("HermWT", "MaleWT")
+control_group_colors <- c("#D13F20", "#494a80")
+
+
+# Generate unique colors for each group, using specific color for the control group
+group_colors <- generate_unique_colors(track_group, control_id = control_group_ids, control_color = control_group_colors)
+
+group_colors
+
+### Calculate Centers for LDA
+# Function for centers calculation 
+find.center<-function(x){
+  require(stats)
+  require(dplyr)
+  require(MASS)
+  x<- x %>% rename(LD1.og= LD1, LD2.og= LD2)
+  weight<- x$weight %||% rep(1, nrow(x))
+  weight <- weight / sum(weight)
+  ellipse<- MASS::cov.trob(x[c('LD1.og', 'LD2.og')], wt= weight * nrow(x))
+  center<-as.data.frame(ellipse$center)
+  center<-t(center)
+  center2<-as.data.frame(center)
+  z<- cbind(x,center2)
+  z<- z %>% rename(LD1=1,LD2=2,LD1.cent=54,LD2.cent=55)
+  return(z)
+}
+x[c('LD1.og', 'LD2.og')]
+test= LDA.All %>% filter(group=="MaleWT")
+
+test2= find.center(test)
+
+# LDA Center DF 
+LDA.center= LDA.All %>% group_split(Exp,group,State.Line) %>% 
+  lapply(find.center) %>% rbindlist()
+LDA.WTcenter= LDA.All %>% filter(grepl("WT", group)) %>% group_split(group,State.Line) %>% 
+  lapply(find.center) %>% rbindlist()
+
+##### Make Plots
+{
+#Male Fem
+LDA.MFemD <- ggplot(data= LDA.center %>% filter(Exp=='MaleFem') %>% 
+                      filter(grepl("Dwell", LDA.State,ignore.case=TRUE))) +
+  aes(x=LD1,y=LD2)+
+    geom_point(alpha=0.1, aes(color= group))+
+    stat_ellipse(aes(group= group), level = 0.9,
+                 color="black")+
+    geom_point(aes(x=LD1.cent, y=LD2.cent), color="black",shape=4, size=4, 
+               stroke=1.5)+
+    geom_point(aes(x=LD1.cent, y=LD2.cent, color=group),shape=16, size=1.5, 
+               stroke=1.5)+
+    scale_color_manual(values =group_colors)+
+  expand_limits(x = c(-5, 10), y = c(-5, 15))+
+  theme(legend.text = element_text(size = 15),
+        legend.title = element_text(size = 15))+ xlab("LD1 (75.4%)")+ ylab("LD2 (19.0%)") + labs(color='LDA Group') 
+    
+
+LDA.MFemD
+
+LDA.MFemR <-ggplot(data= LDA.center %>% filter(Exp=='MaleFem') %>% 
+                     filter(grepl("Roam", LDA.State,ignore.case=TRUE))) +
+  aes(x=LD1,y=LD2)+
+  geom_point(alpha=0.1, aes(color= group))+
+  stat_ellipse(aes(group= group), level = 0.9,
+               color="black")+
+  geom_point(aes(x=LD1.cent, y=LD2.cent), color="black",shape=4, size=4, 
+             stroke=1.5)+
+  geom_point(aes(x=LD1.cent, y=LD2.cent, color=group),shape=16, size=1.5, 
+             stroke=1.5)+
+  scale_color_manual(values =group_colors)+
+  expand_limits(x = c(-5, 10), y = c(-5, 15))+
+  theme(legend.text = element_text(size = 15),
+        legend.title = element_text(size = 15))+ xlab("LD1 (75.4%)")+ ylab("LD2 (19.0%)") + labs(color='LDA Group') 
+LDA.MFemR
+#Herm Masc
+LDA.HMascD <- ggplot(data= LDA.center %>% filter(Exp=='HermMasc') %>% 
+                      filter(grepl("Dwell", LDA.State,ignore.case=TRUE))) +
+  aes(x=LD1,y=LD2)+
+  geom_point(alpha=0.1, aes(color= group))+
+  stat_ellipse(aes(group= group), level = 0.9,
+               color="black")+
+  geom_point(aes(x=LD1.cent, y=LD2.cent), color="black",shape=4, size=4, 
+             stroke=1.5)+
+  geom_point(aes(x=LD1.cent, y=LD2.cent, color=group),shape=16, size=1.5, 
+             stroke=1.5)+
+  scale_color_manual(values =group_colors)+
+  expand_limits(x = c(-5, 10), y = c(-5, 15))+
+  theme(legend.text = element_text(size = 15),
+        legend.title = element_text(size = 15))+ xlab("LD1 (75.4%)")+ ylab("LD2 (19.0%)") + labs(color='LDA Group') 
+LDA.HMascD
+LDA.HMascR <-ggplot(data= LDA.center %>% filter(Exp=='HermMasc') %>% 
+                     filter(grepl("Roam", LDA.State,ignore.case=TRUE))) +
+  aes(x=LD1,y=LD2)+
+  geom_point(alpha=0.1, aes(color= group))+
+  stat_ellipse(aes(group= group), level = 0.9,
+               color="black")+
+  geom_point(aes(x=LD1.cent, y=LD2.cent), color="black",shape=4, size=4, 
+             stroke=1.5)+
+  geom_point(aes(x=LD1.cent, y=LD2.cent, color=group),shape=16, size=1.5, 
+             stroke=1.5)+
+  scale_color_manual(values =group_colors)+
+  expand_limits(x = c(-5, 10), y = c(-5, 15))+
+  theme(legend.text = element_text(size = 15),
+        legend.title = element_text(size = 15))+ xlab("LD1 (75.4%)")+ ylab("LD2 (19.0%)") + labs(color='LDA Group') 
+
+# OsmFem
+LDA.OsmFemD <- ggplot(data= LDA.center %>% filter(Exp=='OsmFem') %>% 
+                       filter(grepl("Dwell", LDA.State,ignore.case=TRUE))) +
+  aes(x=LD1,y=LD2)+
+  geom_point(alpha=0.1, aes(color= group))+
+  stat_ellipse(aes(group= group), level = 0.9,
+               color="black")+
+  geom_point(aes(x=LD1.cent, y=LD2.cent), color="black",shape=4, size=4, 
+             stroke=1.5)+
+  geom_point(aes(x=LD1.cent, y=LD2.cent, color=group),shape=16, size=1.5, 
+             stroke=1.5)+
+  scale_color_manual(values =group_colors)+
+  expand_limits(x = c(-5, 10), y = c(-5, 15))+
+  theme(legend.text = element_text(size = 15),
+        legend.title = element_text(size = 15))+ xlab("LD1 (75.4%)")+ ylab("LD2 (19.0%)") + labs(color='LDA Group') 
+
+LDA.OsmFemR <-ggplot(data= LDA.center %>% filter(Exp=='OsmFem') %>% 
+                      filter(grepl("Roam", LDA.State,ignore.case=TRUE))) +
+  aes(x=LD1,y=LD2)+
+  geom_point(alpha=0.1, aes(color= group))+
+  stat_ellipse(aes(group= group), level = 0.9,
+               color="black")+
+  geom_point(aes(x=LD1.cent, y=LD2.cent), color="black",shape=4, size=4, 
+             stroke=1.5)+
+  geom_point(aes(x=LD1.cent, y=LD2.cent, color=group),shape=16, size=1.5, 
+             stroke=1.5)+
+  scale_color_manual(values =group_colors)+
+  expand_limits(x = c(-5, 10), y = c(-5, 15))+
+  theme(legend.text = element_text(size = 15),
+        legend.title = element_text(size = 15))+ xlab("LD1 (75.4%)")+ ylab("LD2 (19.0%)") + labs(color='LDA Group') 
+
+#Pdfr-1 
+LDA.PdfrD <- ggplot(data= LDA.center %>% filter(Exp=='Pdfr1') %>% 
+                       filter(grepl("Dwell", LDA.State,ignore.case=TRUE))) +
+  aes(x=LD1,y=LD2)+
+  geom_point(alpha=0.1, aes(color= group))+
+  stat_ellipse(aes(group= group), level = 0.9,
+               color="black")+
+  geom_point(aes(x=LD1.cent, y=LD2.cent), color="black",shape=4, size=4, 
+             stroke=1.5)+
+  geom_point(aes(x=LD1.cent, y=LD2.cent, color=group),shape=16, size=1.5, 
+             stroke=1.5)+
+  scale_color_manual(values =group_colors)+
+  expand_limits(x = c(-5, 10), y = c(-5, 15))+
+  theme(legend.text = element_text(size = 15),
+        legend.title = element_text(size = 15))+ xlab("LD1 (75.4%)")+ ylab("LD2 (19.0%)") + labs(color='LDA Group') 
+
+LDA.PdfrR <-ggplot(data= LDA.center %>% filter(Exp=='Pdfr1') %>% 
+                      filter(grepl("Roam", LDA.State,ignore.case=TRUE))) +
+  aes(x=LD1,y=LD2)+
+  geom_point(alpha=0.1, aes(color= group))+
+  stat_ellipse(aes(group= group), level = 0.9,
+               color="black")+
+  geom_point(aes(x=LD1.cent, y=LD2.cent), color="black",shape=4, size=4, 
+             stroke=1.5)+
+  geom_point(aes(x=LD1.cent, y=LD2.cent, color=group),shape=16, size=1.5, 
+             stroke=1.5)+
+  scale_color_manual(values =group_colors)+
+  expand_limits(x = c(-5, 10), y = c(-5, 15))+
+  theme(legend.text = element_text(size = 15),
+        legend.title = element_text(size = 15))+ xlab("LD1 (75.4%)")+ ylab("LD2 (19.0%)") + labs(color='LDA Group') 
+
+#Tph-1
+LDA.TphD <- ggplot(data= LDA.center %>% filter(Exp=='Tph1') %>% 
+                       filter(grepl("Dwell", LDA.State,ignore.case=TRUE))) +
+  aes(x=LD1,y=LD2)+
+  geom_point(alpha=0.1, aes(color= group))+
+  stat_ellipse(aes(group= group), level = 0.9,
+               color="black")+
+  geom_point(aes(x=LD1.cent, y=LD2.cent), color="black",shape=4, size=4, 
+             stroke=1.5)+
+  geom_point(aes(x=LD1.cent, y=LD2.cent, color=group),shape=16, size=1.5, 
+             stroke=1.5)+
+  scale_color_manual(values =group_colors)+
+  expand_limits(x = c(-5, 10), y = c(-5, 15))+
+  theme(legend.text = element_text(size = 15),
+        legend.title = element_text(size = 15))+ xlab("LD1 (75.4%)")+ ylab("LD2 (19.0%)") + labs(color='LDA Group') 
+
+LDA.TphR <-ggplot(data= LDA.center %>% filter(Exp=='Tph1') %>% 
+                      filter(grepl("Roam", LDA.State,ignore.case=TRUE))) +
+  aes(x=LD1,y=LD2)+
+  geom_point(alpha=0.1, aes(color= group))+
+  stat_ellipse(aes(group= group), level = 0.9,
+               color="black")+
+  geom_point(aes(x=LD1.cent, y=LD2.cent), color="black",shape=4, size=4, 
+             stroke=1.5)+
+  geom_point(aes(x=LD1.cent, y=LD2.cent, color=group),shape=16, size=1.5, 
+             stroke=1.5)+
+  scale_color_manual(values =group_colors)+
+  expand_limits(x = c(-5, 10), y = c(-5, 15))+
+  theme(legend.text = element_text(size = 15),
+        legend.title = element_text(size = 15))+ xlab("LD1 (75.4%)")+ ylab("LD2 (19.0%)") + labs(color='LDA Group') 
+
+#Pdf-1
+LDA.Pdf1D <- ggplot(data= LDA.center %>% filter(Exp=='Pdf1') %>% 
+                       filter(grepl("Dwell", LDA.State,ignore.case=TRUE))) +
+  aes(x=LD1,y=LD2)+
+  geom_point(alpha=0.1, aes(color= group))+
+  stat_ellipse(aes(group= group), level = 0.9,
+               color="black")+
+  geom_point(aes(x=LD1.cent, y=LD2.cent), color="black",shape=4, size=4, 
+             stroke=1.5)+
+  geom_point(aes(x=LD1.cent, y=LD2.cent, color=group),shape=16, size=1.5, 
+             stroke=1.5)+
+  scale_color_manual(values =group_colors)+
+  expand_limits(x = c(-5, 10), y = c(-5, 15))+
+  theme(legend.text = element_text(size = 15),
+        legend.title = element_text(size = 15))+ xlab("LD1 (75.4%)")+ ylab("LD2 (19.0%)") + labs(color='LDA Group') 
+
+LDA.Pdf1R <-ggplot(data= LDA.center %>% filter(Exp=='Pdf1') %>% 
+                      filter(grepl("Roam", LDA.State,ignore.case=TRUE))) +
+  aes(x=LD1,y=LD2)+
+  geom_point(alpha=0.1, aes(color= group))+
+  stat_ellipse(aes(group= group), level = 0.9,
+               color="black")+
+  geom_point(aes(x=LD1.cent, y=LD2.cent), color="black",shape=4, size=4, 
+             stroke=1.5)+
+  geom_point(aes(x=LD1.cent, y=LD2.cent, color=group),shape=16, size=1.5, 
+             stroke=1.5)+
+  scale_color_manual(values =group_colors)+
+  expand_limits(x = c(-5, 10), y = c(-5, 15))+
+  theme(legend.text = element_text(size = 15),
+        legend.title = element_text(size = 15))+ xlab("LD1 (75.4%)")+ ylab("LD2 (19.0%)") + labs(color='LDA Group') 
+
+#Pdf2
+LDA.Pdf2D <- ggplot(data= LDA.center %>% filter(Exp=='Pdf2') %>% 
+                       filter(grepl("Dwell", LDA.State,ignore.case=TRUE))) +
+  aes(x=LD1,y=LD2)+
+  geom_point(alpha=0.1, aes(color= group))+
+  stat_ellipse(aes(group= group), level = 0.9,
+               color="black")+
+  geom_point(aes(x=LD1.cent, y=LD2.cent), color="black",shape=4, size=4, 
+             stroke=1.5)+
+  geom_point(aes(x=LD1.cent, y=LD2.cent, color=group),shape=16, size=1.5, 
+             stroke=1.5)+
+  scale_color_manual(values =group_colors)+
+  expand_limits(x = c(-5, 10), y = c(-5, 15))+
+  theme(legend.text = element_text(size = 15),
+        legend.title = element_text(size = 15))+ xlab("LD1 (75.4%)")+ ylab("LD2 (19.0%)") + labs(color='LDA Group') 
+
+LDA.Pdf2R <-ggplot(data= LDA.center %>% filter(Exp=='Pdf2') %>% 
+                      filter(grepl("Roam", LDA.State,ignore.case=TRUE))) +
+  aes(x=LD1,y=LD2)+
+  geom_point(alpha=0.1, aes(color= group))+
+  stat_ellipse(aes(group= group), level = 0.9,
+               color="black")+
+  geom_point(aes(x=LD1.cent, y=LD2.cent), color="black",shape=4, size=4, 
+             stroke=1.5)+
+  geom_point(aes(x=LD1.cent, y=LD2.cent, color=group),shape=16, size=1.5, 
+             stroke=1.5)+
+  scale_color_manual(values =group_colors)+
+  expand_limits(x = c(-5, 10), y = c(-5, 15))+
+  theme(legend.text = element_text(size = 15),
+        legend.title = element_text(size = 15))+ xlab("LD1 (75.4%)")+ ylab("LD2 (19.0%)") + labs(color='LDA Group') 
+
+#Daf-7
+LDA.daf7D <- ggplot(data= LDA.center %>% filter(Exp=='daf-7') %>% 
+                       filter(grepl("Dwell", LDA.State,ignore.case=TRUE))) +
+  aes(x=LD1,y=LD2)+
+  geom_point(alpha=0.1, aes(color= group))+
+  stat_ellipse(aes(group= group), level = 0.9,
+               color="black")+
+  geom_point(aes(x=LD1.cent, y=LD2.cent), color="black",shape=4, size=4, 
+             stroke=1.5)+
+  geom_point(aes(x=LD1.cent, y=LD2.cent, color=group),shape=16, size=1.5, 
+             stroke=1.5)+
+  scale_color_manual(values =group_colors)+
+  expand_limits(x = c(-5, 10), y = c(-5, 15))+
+  theme(legend.text = element_text(size = 15),
+        legend.title = element_text(size = 15))+ xlab("LD1 (75.4%)")+ ylab("LD2 (19.0%)") + labs(color='LDA Group') 
+
+LDA.daf7R <-ggplot(data= LDA.center %>% filter(Exp=='daf-7') %>% 
+                      filter(grepl("Roam", LDA.State,ignore.case=TRUE))) +
+  aes(x=LD1,y=LD2)+
+  geom_point(alpha=0.1, aes(color= group))+
+  stat_ellipse(aes(group= group), level = 0.9,
+               color="black")+
+  geom_point(aes(x=LD1.cent, y=LD2.cent), color="black",shape=4, size=4, 
+             stroke=1.5)+
+  geom_point(aes(x=LD1.cent, y=LD2.cent, color=group),shape=16, size=1.5, 
+             stroke=1.5)+
+  scale_color_manual(values =group_colors)+
+  expand_limits(x = c(-5, 10), y = c(-5, 15))+
+  theme(legend.text = element_text(size = 15),
+        legend.title = element_text(size = 15))+ xlab("LD1 (75.4%)")+ ylab("LD2 (19.0%)") + labs(color='LDA Group') 
+
+#Dopamine
+LDA.Cat2D <- ggplot(data= LDA.center %>% filter(Exp=='Cat2') %>% 
+                       filter(grepl("Dwell", LDA.State,ignore.case=TRUE))) +
+  aes(x=LD1,y=LD2)+
+  geom_point(alpha=0.1, aes(color= group))+
+  stat_ellipse(aes(group= group), level = 0.9,
+               color="black")+
+  geom_point(aes(x=LD1.cent, y=LD2.cent), color="black",shape=4, size=4, 
+             stroke=1.5)+
+  geom_point(aes(x=LD1.cent, y=LD2.cent, color=group),shape=16, size=1.5, 
+             stroke=1.5)+
+  scale_color_manual(values =group_colors)+
+  expand_limits(x = c(-5, 10), y = c(-5, 15))+
+  theme(legend.text = element_text(size = 15),
+        legend.title = element_text(size = 15))+ xlab("LD1 (75.4%)")+ ylab("LD2 (19.0%)") + labs(color='LDA Group') 
+
+LDA.Cat2R <-ggplot(data= LDA.center %>% filter(Exp=='Cat2') %>% 
+                      filter(grepl("Roam", LDA.State,ignore.case=TRUE))) +
+  aes(x=LD1,y=LD2)+
+  geom_point(alpha=0.1, aes(color= group))+
+  stat_ellipse(aes(group= group), level = 0.9,
+               color="black")+
+  geom_point(aes(x=LD1.cent, y=LD2.cent), color="black",shape=4, size=4, 
+             stroke=1.5)+
+  geom_point(aes(x=LD1.cent, y=LD2.cent, color=group),shape=16, size=1.5, 
+             stroke=1.5)+
+  scale_color_manual(values =group_colors)+
+  expand_limits(x = c(-5, 10), y = c(-5, 15))+
+  theme(legend.text = element_text(size = 15),
+        legend.title = element_text(size = 15))+ xlab("LD1 (75.4%)")+ ylab("LD2 (19.0%)") + labs(color='LDA Group') 
+#Pdf-1/pdf-2 KO
+LDA.pdf12D <- ggplot(data= LDA.center %>% filter(Exp=='pdf12') %>% 
+                       filter(grepl("Dwell", LDA.State,ignore.case=TRUE))) +
+  aes(x=LD1,y=LD2)+
+  geom_point(alpha=0.1, aes(color= group))+
+  stat_ellipse(aes(group= group), level = 0.9,
+               color="black")+
+  geom_point(aes(x=LD1.cent, y=LD2.cent), color="black",shape=4, size=4, 
+             stroke=1.5)+
+  geom_point(aes(x=LD1.cent, y=LD2.cent, color=group),shape=16, size=1.5, 
+             stroke=1.5)+
+  scale_color_manual(values =group_colors)+
+  expand_limits(x = c(-5, 10), y = c(-5, 15))+
+  theme(legend.text = element_text(size = 15),
+        legend.title = element_text(size = 15))+ xlab("LD1 (75.4%)")+ ylab("LD2 (19.0%)") + labs(color='LDA Group') 
+
+
+LDA.pdf12R <-ggplot(data= LDA.center %>% filter(Exp=='pdf12') %>% 
+                      filter(grepl("Roam", LDA.State,ignore.case=TRUE))) +
+  aes(x=LD1,y=LD2)+
+  geom_point(alpha=0.1, aes(color= group))+
+  stat_ellipse(aes(group= group), level = 0.9,
+               color="black")+
+  geom_point(aes(x=LD1.cent, y=LD2.cent), color="black",shape=4, size=4, 
+             stroke=1.5)+
+  geom_point(aes(x=LD1.cent, y=LD2.cent, color=group),shape=16, size=1.5, 
+             stroke=1.5)+
+  scale_color_manual(values =group_colors)+
+  expand_limits(x = c(-5, 10), y = c(-5, 15))+
+  theme(legend.text = element_text(size = 15),
+        legend.title = element_text(size = 15))+ xlab("LD1 (75.4%)")+ ylab("LD2 (19.0%)") + labs(color='LDA Group') 
+
+#Pdfr Fem
+LDA.pdfrFemD <- ggplot(data= LDA.center %>% filter(Exp=='pdfem') %>% 
+                       filter(grepl("Dwell", LDA.State,ignore.case=TRUE))) +
+  aes(x=LD1,y=LD2)+
+  geom_point(alpha=0.1, aes(color= group))+
+  stat_ellipse(aes(group= group), level = 0.9,
+               color="black")+
+  geom_point(aes(x=LD1.cent, y=LD2.cent), color="black",shape=4, size=4, 
+             stroke=1.5)+
+  geom_point(aes(x=LD1.cent, y=LD2.cent, color=group),shape=16, size=1.5, 
+             stroke=1.5)+
+  scale_color_manual(values =group_colors)+
+  expand_limits(x = c(-5, 10), y = c(-5, 15))+
+  theme(legend.text = element_text(size = 15),
+        legend.title = element_text(size = 15))+ xlab("LD1 (75.4%)")+ ylab("LD2 (19.0%)") + labs(color='LDA Group') 
+LDA.pdfrFemD
+
+LDA.pdfrFemR <-ggplot(data= LDA.center %>% filter(Exp=='pdfem') %>% 
+                      filter(grepl("Roam", LDA.State,ignore.case=TRUE))) +
+  aes(x=LD1,y=LD2)+
+  geom_point(alpha=0.1, aes(color= group))+
+  stat_ellipse(aes(group= group), level = 0.9,
+               color="black")+
+  geom_point(aes(x=LD1.cent, y=LD2.cent), color="black",shape=4, size=4, 
+             stroke=1.5)+
+  geom_point(aes(x=LD1.cent, y=LD2.cent, color=group),shape=16, size=1.5, 
+             stroke=1.5)+
+  scale_color_manual(values =group_colors)+
+  expand_limits(x = c(-5, 10), y = c(-5, 15))+
+  theme(legend.text = element_text(size = 15),
+        legend.title = element_text(size = 15))+ xlab("LD1 (75.4%)")+ ylab("LD2 (19.0%)") + labs(color='LDA Group') 
+
+# Pdfr GOF
+LDA.pdfrgofR <-ggplot(data= LDA.center %>% filter(Exp=='pdfrgof') %>% 
+                        filter(grepl("Roam", LDA.State,ignore.case=TRUE))) +
+  aes(x=LD1,y=LD2)+
+  geom_point(alpha=0.1, aes(color= group))+
+  stat_ellipse(aes(group= group), level = 0.9,
+               color="black")+
+  geom_point(aes(x=LD1.cent, y=LD2.cent), color="black",shape=4, size=4, 
+             stroke=1.5)+
+  geom_point(aes(x=LD1.cent, y=LD2.cent, color=group),shape=16, size=1.5, 
+             stroke=1.5)+
+  scale_color_manual(values =group_colors)+
+  expand_limits(x = c(-5, 10), y = c(-5, 15))+
+  theme(legend.text = element_text(size = 15),
+        legend.title = element_text(size = 15))+ xlab("LD1 (75.4%)")+ ylab("LD2 (19.0%)") + labs(color='LDA Group') 
+
+LDA.pdfrgofD <-ggplot(data= LDA.center %>% filter(Exp=='pdfrgof') %>% 
+                        filter(grepl("Dwell", LDA.State,ignore.case=TRUE))) +
+  aes(x=LD1,y=LD2)+
+  geom_point(alpha=0.1, aes(color= group))+
+  stat_ellipse(aes(group= group), level = 0.9,
+               color="black")+
+  geom_point(aes(x=LD1.cent, y=LD2.cent), color="black",shape=4, size=4, 
+             stroke=1.5)+
+  geom_point(aes(x=LD1.cent, y=LD2.cent, color=group),shape=16, size=1.5, 
+             stroke=1.5)+
+  scale_color_manual(values =group_colors)+
+  expand_limits(x = c(-5, 10), y = c(-5, 15))+
+  theme(legend.text = element_text(size = 15),
+        legend.title = element_text(size = 15))+ xlab("LD1 (75.4%)")+ ylab("LD2 (19.0%)") + labs(color='LDA Group') 
+
+#Wildtype
+LDA.WT.plotR <- ggplot(data= LDA.WTcenter %>% filter(grepl("WT", group)) %>% 
+                            filter(grepl("Roam", LDA.State,ignore.case=TRUE)))+
+  aes(x=LD1,y=LD2)+
+  geom_point(alpha=0.1, aes(color= group))+
+  stat_ellipse(aes(group= group), level = 0.9,
+               color="black")+
+  geom_point(aes(x=LD1.cent, y=LD2.cent), color="black",shape=4, size=4, 
+             stroke=1.5)+
+  geom_point(aes(x=LD1.cent, y=LD2.cent, color=group),shape=16, size=1.5, 
+             stroke=1.5)+
+  scale_color_manual(values =group_colors)+
+  expand_limits(x = c(-5, 10), y = c(-5, 15))+
+  theme(legend.text = element_text(size = 15),
+        legend.title = element_text(size = 15))+ xlab("LD1 (75.4%)")+ ylab("LD2 (19.0%)") + labs(color='LDA Group') 
+
+LDA.WT.plotR
+
+LDA.WT.plotD <- ggplot(data= LDA.WTcenter %>% filter(grepl("WT", group)) %>% 
+                         filter(grepl("Dwell", LDA.State,ignore.case=TRUE)))+
+  aes(x=LD1,y=LD2)+
+  geom_point(alpha=0.1, aes(color= group))+
+  stat_ellipse(aes(group= group), level = 0.9,
+               color="black")+
+  geom_point(aes(x=LD1.cent, y=LD2.cent), color="black",shape=4, size=4, 
+             stroke=1.5)+
+  geom_point(aes(x=LD1.cent, y=LD2.cent, color=group),shape=16, size=1.5, 
+             stroke=1.5)+
+  scale_color_manual(values =group_colors)+
+  expand_limits(x = c(-5, 10), y = c(-5, 15))+
+  theme(legend.text = element_text(size = 15),
+        legend.title = element_text(size = 15))+ xlab("LD1 (75.4%)")+ ylab("LD2 (19.0%)") + labs(color='LDA Group') 
+
+LDA.WT.plotD
+
+LDA.WT.plot <- ggplot(data= LDA.WTcenter)+
+  aes(x=LD1,y=LD2)+
+  geom_point(alpha=0.1, aes(color= group))+
+  stat_ellipse(aes(group= group), level = 0.9,
+               color="black")+
+  geom_point(aes(x=LD1.cent, y=LD2.cent), color="black",shape=4, size=4, 
+             stroke=1.5)+
+  geom_point(aes(x=LD1.cent, y=LD2.cent, color=group),shape=16, size=1.5, 
+             stroke=1.5)+
+  scale_color_manual(values =group_colors)+
+  expand_limits(x = c(-5, 10), y = c(-5, 15))+
+  theme(legend.text = element_text(size = 15),
+        legend.title = element_text(size = 15))+ xlab("LD1 (75.4%)")+ ylab("LD2 (19.0%)") + labs(color='LDA Group') 
+
+LDA.WT.plot
+#unc31 
+LDA.unc31R <-ggplot(data= LDA.center %>% filter(Exp=='unc31') %>% 
+                        filter(grepl("Roam", LDA.State,ignore.case=TRUE))) +
+  aes(x=LD1,y=LD2)+
+  geom_point(alpha=0.1, aes(color= group))+
+  stat_ellipse(aes(group= group), level = 0.9,
+               color="black")+
+  geom_point(aes(x=LD1.cent, y=LD2.cent), color="black",shape=4, size=4, 
+             stroke=1.5)+
+  geom_point(aes(x=LD1.cent, y=LD2.cent, color=group),shape=16, size=1.5, 
+             stroke=1.5)+
+  scale_color_manual(values =group_colors)+
+  expand_limits(x = c(-5, 10), y = c(-5, 15))+
+  theme(legend.text = element_text(size = 15),
+        legend.title = element_text(size = 15))+ xlab("LD1 (75.4%)")+ ylab("LD2 (19.0%)") + labs(color='LDA Group') 
+LDA.unc31R
+
+LDA.unc31D <-ggplot(data= LDA.center %>% filter(Exp=='unc31') %>% 
+                        filter(grepl("Dwell", LDA.State,ignore.case=TRUE))) +
+  aes(x=LD1,y=LD2)+
+  geom_point(alpha=0.1, aes(color= group))+
+  stat_ellipse(aes(group= group), level = 0.9,
+               color="black")+
+  geom_point(aes(x=LD1.cent, y=LD2.cent), color="black",shape=4, size=4, 
+             stroke=1.5)+
+  geom_point(aes(x=LD1.cent, y=LD2.cent, color=group),shape=16, size=1.5, 
+             stroke=1.5)+
+  scale_color_manual(values =group_colors)+
+  expand_limits(x = c(-5, 10), y = c(-5, 15))+
+  theme(legend.text = element_text(size = 15),
+        legend.title = element_text(size = 15))+ xlab("LD1 (75.4%)")+ ylab("LD2 (19.0%)") + labs(color='LDA Group') 
+
+#LDA.modfemD
+
+LDA.modfemD <-ggplot(data= LDA.center %>% filter(Exp=='modfem') %>% 
+                      filter(grepl("Dwell", LDA.State,ignore.case=TRUE))) +
+  aes(x=LD1,y=LD2)+
+  geom_point(alpha=0.1, aes(color= group))+
+  stat_ellipse(aes(group= group), level = 0.9,
+               color="black")+
+  geom_point(aes(x=LD1.cent, y=LD2.cent), color="black",shape=4, size=4, 
+             stroke=1.5)+
+  geom_point(aes(x=LD1.cent, y=LD2.cent, color=group),shape=16, size=1.5, 
+             stroke=1.5)+
+  scale_color_manual(values =group_colors)+
+  expand_limits(x = c(-5, 10), y = c(-5, 15))+
+  theme(legend.text = element_text(size = 15),
+        legend.title = element_text(size = 15))+ xlab("LD1 (75.4%)")+ ylab("LD2 (19.0%)") + labs(color='LDA Group') 
+
+
+#LDA.D7upD
+
+LDA.d7upD <-ggplot(data= LDA.center %>% filter(Exp=='d7up') %>% 
+                       filter(grepl("Dwell", LDA.State,ignore.case=TRUE))) +
+  aes(x=LD1,y=LD2)+
+  geom_point(alpha=0.1, aes(color= group))+
+  stat_ellipse(aes(group= group), level = 0.9,
+               color="black")+
+  geom_point(aes(x=LD1.cent, y=LD2.cent), color="black",shape=4, size=4, 
+             stroke=1.5)+
+  geom_point(aes(x=LD1.cent, y=LD2.cent, color=group),shape=16, size=1.5, 
+             stroke=1.5)+
+  scale_color_manual(values =group_colors)+
+  expand_limits(x = c(-5, 10), y = c(-5, 15))+
+  theme(legend.text = element_text(size = 15),
+        legend.title = element_text(size = 15))+ xlab("LD1 (75.4%)")+ ylab("LD2 (19.0%)") + labs(color='LDA Group') 
+#LDA.D7upR
+
+LDA.d7upR <-ggplot(data= LDA.center %>% filter(Exp=='d7up') %>% 
+                      filter(grepl("Roam", LDA.State,ignore.case=TRUE))) +
+  aes(x=LD1,y=LD2)+
+  geom_point(alpha=0.1, aes(color= group))+
+  stat_ellipse(aes(group= group), level = 0.9,
+               color="black")+
+  geom_point(aes(x=LD1.cent, y=LD2.cent), color="black",shape=4, size=4, 
+             stroke=1.5)+
+  geom_point(aes(x=LD1.cent, y=LD2.cent, color=group),shape=16, size=1.5, 
+             stroke=1.5)+
+  scale_color_manual(values =group_colors)+
+  expand_limits(x = c(-5, 10), y = c(-5, 15))+
+  theme(legend.text = element_text(size = 15),
+        legend.title = element_text(size = 15))+ xlab("LD1 (75.4%)")+ ylab("LD2 (19.0%)") + labs(color='LDA Group') 
+
+
+#LDA.D7koD
+
+LDA.d7koD <-ggplot(data= LDA.center %>% filter(Exp=='d7ko') %>% 
+                      filter(grepl("Dwell", LDA.State,ignore.case=TRUE))) +
+  aes(x=LD1,y=LD2)+
+  geom_point(alpha=0.1, aes(color= group))+
+  stat_ellipse(aes(group= group), level = 0.9,
+               color="black")+
+  geom_point(aes(x=LD1.cent, y=LD2.cent), color="black",shape=4, size=4, 
+             stroke=1.5)+
+  geom_point(aes(x=LD1.cent, y=LD2.cent, color=group),shape=16, size=1.5, 
+             stroke=1.5)+
+  scale_color_manual(values =group_colors)+
+  expand_limits(x = c(-5, 10), y = c(-5, 15))+
+  theme(legend.text = element_text(size = 15),
+        legend.title = element_text(size = 15))+ xlab("LD1 (75.4%)")+ ylab("LD2 (19.0%)") + labs(color='LDA Group') 
+
+
+#LDA.D7koR
+
+LDA.d7koR <-ggplot(data= LDA.center %>% filter(Exp=='d7ko') %>% 
+                     filter(grepl("Roam", LDA.State,ignore.case=TRUE))) +
+  aes(x=LD1,y=LD2)+
+  geom_point(alpha=0.1, aes(color= group))+
+  stat_ellipse(aes(group= group), level = 0.9,
+               color="black")+
+  geom_point(aes(x=LD1.cent, y=LD2.cent), color="black",shape=4, size=4, 
+             stroke=1.5)+
+  geom_point(aes(x=LD1.cent, y=LD2.cent, color=group),shape=16, size=1.5, 
+             stroke=1.5)+
+  scale_color_manual(values =group_colors)+
+  expand_limits(x = c(-5, 10), y = c(-5, 15))+
+  theme(legend.text = element_text(size = 15),
+        legend.title = element_text(size = 15))+ xlab("LD1 (75.4%)")+ ylab("LD2 (19.0%)") + labs(color='LDA Group') 
+
+LDA.d7koR
+
+}
+
+LDA.MFemD
+LDA.MFemR
+LDA.HMascD
+LDA.HMascR
+LDA.OsmFemD
+LDA.OsmFemR
+LDA.PdfrD
+LDA.PdfrR
+LDA.TphD
+LDA.TphR
+LDA.Pdf1D
+LDA.Pdf1R
+LDA.Pdf2D
+LDA.Pdf2R
+LDA.daf7D
+LDA.daf7R
+LDA.Cat2D
+LDA.Cat2R
+LDA.pdf12D
+LDA.pdf12R
+LDA.pdfrFemD
+LDA.pdfrFemR
+LDA.pdfrgofD
+LDA.pdfrgofR
+LDA.d7upD
+LDA.d7upR
+LDA.d7koD
+LDA.d7koR
+LDA.WT.plotD
+        
+
+
+
+
+LDA.WT.plotR
+
+# Make List
+track.LDA<-list()
+{
+  track.LDA[["MFemD"]]<-LDA.MFemD 
+  track.LDA[["MFemR"]]<-LDA.MFemR
+  #track.LDA[["MFem"]]<-MFem.tr
+  track.LDA[["HMascD"]]<-LDA.HMascD
+  track.LDA[["HMascR"]]<-LDA.HMascR
+  #track.LDA[["HMasc"]]<-HMasc.tr
+  track.LDA[["PdfrR"]]<-LDA.PdfrR
+  track.LDA[["PdfrD"]]<-LDA.PdfrD
+  track.LDA[["TphD"]]<-LDA.TphD
+  track.LDA[["TphR"]]<-LDA.TphR
+  track.LDA[["OsmFemD"]]<-LDA.OsmFemD
+  track.LDA[["OsmFemR"]]<-LDA.OsmFemR
+  track.LDA[["Pdf1D"]]<-LDA.Pdf1D
+  track.LDA[["Pdf1R"]]<-LDA.Pdf1R
+  track.LDA[["Pdf2D"]]<-LDA.Pdf2D
+  track.LDA[["Pdf2R"]]<-LDA.Pdf2R
+  track.LDA[["Pdf12D"]]<-LDA.pdf12D
+  track.LDA[["Pdf12R"]]<-LDA.pdf12R
+  track.LDA[["daf7D"]]<-LDA.daf7D
+  track.LDA[["daf7R"]]<-LDA.daf7R
+  track.LDA[["Cat2D"]]<-LDA.Cat2D
+  track.LDA[["Cat2R"]]<-LDA.Cat2R
+  track.LDA[["pdfrfemD"]]<-LDA.pdfrFemD
+  track.LDA[["pdfrfemR"]]<-LDA.pdfrFemR
+  track.LDA[["pdfrgofD"]]<-LDA.pdfrgofD
+  track.LDA[["pdfrgofR"]]<-LDA.pdfrgofR
+  track.LDA[["d7upD"]]<-LDA.d7upD
+  track.LDA[["d7upR"]]<-LDA.d7upR
+  track.LDA[["d7koD"]]<-LDA.d7koD
+  track.LDA[["d7koR"]]<-LDA.d7koR
+  track.LDA[["WTPlotD"]]<-LDA.WT.plotD
+  track.LDA[["WTPlotR"]]<-LDA.WT.plotR
+}
+track.LDA[["WTPlotR"]]
+# Specify the directory where you want to save the plots
+output_directory <- choose.dir()  # Change this to your desired directory
+
+
+# Loop through the list and save each plot
+for (plot_name in names(track.LDA)) {
+  # Save each plot to a .svg file with its respective variable name
+  ggsave(filename = file.path(output_directory, paste0(plot_name, ".pdf")), plot = track.LDA[[plot_name]], device = "pdf")
+}
+
+
+
+## Export LDA Data 
+# Pick out LD stuff 
+LDA.fix=LDA.center %>% 
+  mutate(L.State = case_when(grepl('Herm.Dwell', rpred.smooth) ~ 'Dwell',
+                             grepl('Herm.Roam', rpred.smooth) ~ 'Roam',
+                             grepl('Male.Dwell',rpred.smooth)~ 'Dwell',
+                             grepl('Male.Roam',rpred.smooth)~ 'Roam',
+                             grepl('Male.Tail Chase',rpred.smooth)~ 'Tail Chase'
+  ))
+
+
+LDA.export= LDA.fix %>% select(worm_ID,Exp,group,L.State,LD1,LD2)
+#choose.dir()
+
+file= paste(choose.dir(),"\\LDAstats_2024-05-05.xlsx",sep = "")
+openxlsx::write.xlsx(LDA.export, file=file)
+                         
